@@ -39,7 +39,7 @@ UI 分两层：游戏画面是 Pixi canvas（`#app`）；HUD/菜单/标题画面
 | [src/entities/drops.ts](src/entities/drops.ts) | 掉落物（emoji Text 精灵）：散落→吸附→拾取 | `Drops` | defs |
 | [src/entities/projectiles.ts](src/entities/projectiles.ts) | 箭矢：手动飞行、命中动物/钉树 | `Projectiles` | defs |
 | [src/ui/hud.ts](src/ui/hud.ts) | 全部 DOM 操作：血条/资源/武器栏/小地图 canvas/界面切换/篝火升级菜单 | 函数集合 | defs |
-| [src/core/](src/core) | `input.ts`（键鼠，`e.code` 体系）、`audio.ts`（合成音效单例 `sfx`）、`save.ts`（localStorage，`SaveData v1`） | — | — |
+| [src/core/](src/core) | `input.ts`（键鼠，`e.code` 体系）、`audio.ts`（合成音效单例 `sfx`）、`save.ts`（localStorage，`SaveData` **v2**：货币/商店武器/武器等级/皮肤/天赋；内置 v1→v2 迁移 `migrateV1`） | — | — |
 | [src/fx.ts](src/fx.ts) | 粒子与伤害飘字对象池 | `Particles`, `FloatTexts` | defs |
 | [src/utils/noise.ts](src/utils/noise.ts) | 值噪声 FBM、`mulberry32`、`tileJitter` | — | 无 |
 
@@ -56,6 +56,10 @@ UI 分两层：游戏画面是 Pixi canvas（`#app`）；HUD/菜单/标题画面
 ### 战斗与采集链
 
 `Player.update` 检测左键 → `Player.attack` → 近战：`Game.meleeStrike`（遍历 `game.animals` 距离+扇形角判定 → `Animal.damage` → 死亡时 `drops.spawn` + `Game.onAnimalKilled`；资源节点每挥击只命中最近一个 → `harvestHit` → 耗尽 `destroyNode` 记入 `removedNodes`）；远程：`Projectiles.fire` → 每帧距离判定。Boss 死亡 → `onAnimalKilled` 设 `bossDefeated` → 自动存档 + 胜利画面。
+
+### 商店链
+
+篝火菜单 `cf-shop` 按钮 → `Game.openShop()`（`menuKind='shop'`，世界冻结）→ [src/ui/hud.ts](src/ui/hud.ts) `renderShop(player, tab)` 以 innerHTML 渲染四个选项卡（武器/武器升级/天赋/皮肤）→ [src/main.ts](src/main.ts) 在 `#shop-menu` 上做事件委托（`data-tab` / `data-act`+`data-id`）→ `Game.setShopTab` / `Game.shopAction`（购买/升级/装备，余额校验 `Player.canAfford/pay`）。商品与价格数据全在 [src/defs.ts](src/defs.ts)（`WEAPONS[].price`、`WEAPON_UPG`、`TALENTS`、`SKINS`、货币掉率 `COIN_TABLE`）。武器栏 `hud.buildHotbar` 按 `player.weapons` 动态生成（1~8 键）。天赋效果分散在引用点：`sprinter/tough`（player.ts）、`vampire`（game.meleeStrike）、`scavenger`（game.harvestHit + animals.die）、`lucky`（animals.die）。
 
 ### 存档链
 

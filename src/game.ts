@@ -3,10 +3,14 @@
 
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Application, Container, Graphics } from 'pixi.js';
-import { DAY_LENGTH, MAP, SCALE, Tile, UPGRADES, type ResKind, type WeaponDef } from './defs';
+import {
+  DAY_LENGTH, GROUPS, MAP, SCALE, Tile, UPGRADES,
+  GEAR_BY_ID, SKIN_BY_ID, TALENT_BY_ID, WEAPON_BY_ID, WEAPON_UPG,
+  type ResKind, type WeaponDef,
+} from './defs';
 import { Input } from './core/input';
 import { sfx } from './core/audio';
-import { writeSave, type SaveData } from './core/save';
+import { packExplored, unpackExplored, writeSave, type SaveData } from './core/save';
 import { generateWorld, type NodeKind, type WorldData } from './world/worldgen';
 import { WorldRenderer } from './world/worldrender';
 import { Particles, FloatTexts } from './fx';
@@ -17,10 +21,10 @@ import { Projectiles } from './entities/projectiles';
 import { tileJitter } from './utils/noise';
 import * as hud from './ui/hud';
 
-// 碰撞分组
-const G_STATIC = (0x0001 << 16) | 0x0006;
-const G_PLAYER = (0x0002 << 16) | 0x0005;
-const G_ANIMAL = (0x0004 << 16) | 0x0007;
+// 碰撞分组定义见 defs.ts GROUPS
+const G_STATIC = GROUPS.STATIC;
+const G_PLAYER = GROUPS.PLAYER;
+const G_ANIMAL = GROUPS.ANIMAL;
 
 export interface WNode {
   id: number;
@@ -74,6 +78,7 @@ export class Game {
   nodes: WNode[] = [];
   private campfires: Campfire[] = [];
   removedNodes = new Set<number>();
+  explored: Uint8Array = new Uint8Array(MAP * MAP); // 战争迷雾
   private spawnRecords: SpawnRecord[] = [];
 
   private camX = 0;
@@ -89,6 +94,8 @@ export class Game {
 
   paused = false;
   menuOpen = false;
+  private menuKind: 'campfire' | 'shop' | null = null;
+  private shopTab: hud.ShopTab = 'weapons';
   private activeCampfire: Campfire | null = null;
   private state: 'playing' | 'dead' = 'playing';
   campfireId = 0;
@@ -154,9 +161,17 @@ export class Game {
       this.player.stam = p.maxStam;
       this.player.res = { ...p.res };
       this.player.upgrades = { ...p.upgrades };
-      this.player.weaponIdx = p.weapon;
+      this.player.coins = { ...p.coins };
+      this.player.weapons = [...p.weapons];
+      this.player.weaponLvls = { ...p.weaponLvls };
+      this.player.skins = [...p.skins];
+      this.player.activeSkin = p.activeSkin;
+      this.player.talents = new Set(p.talents);
+      this.player.gear = new Set(p.gear);
+      this.player.weaponIdx = Math.min(p.weapon, this.player.weapons.length - 1);
       this.player.drawWeapon();
       this.removedNodes = new Set(save.removedNodes);
+      this.explored = unpackExplored(save.explored, MAP * MAP);
     }
 
     // 动物
@@ -164,10 +179,12 @@ export class Game {
     this.spawnAllAnimals();
 
     // HUD
-    hud.initMinimap(this.worldData);
-    hud.setWeapon(this.player.weaponIdx);
+    hud.initMinimap(this.worldData, this.explored);
+    hud.buildHotbar(this.player.weapons, this.player.weaponIdx);
     hud.setRes(this.player.res);
+    hud.updateCoins(this.player.coins);
     hud.setHp(this.player.hp, this.player.maxHp);
+    this.revealAround(this.player.x, this.player.y);
     hud.drawMinimap(this.worldData, this.player.x, this.player.y, !this.bossDefeated);
 
     this.app.ticker.add((tk) => this.tick(Math.min(tk.deltaMS / 1000, 0.05)));
@@ -179,7 +196,7 @@ export class Game {
 
   // ---------------- 构建 ----------------
 
-  /** 深水边界碰撞体：把玩家和动物挡在岛上 */
+  /** 深水边界碰撞体（WATER 组，乘船可穿越）+ 地图四周外墙（乘船也不可驶出） */
   private buildWaterColliders(): void {
     const w = this.worldData;
     for (let y = 1; y < MAP - 1; y++) {
@@ -193,10 +210,23 @@ export class Game {
           (w.tiles[(y + 1) * MAP + x] as Tile) > Tile.DeepWater;
         if (near) {
           this.physWorld.createCollider(
-            RAPIER.ColliderDesc.cuboid(0.5, 0.5).setTranslation(x + 0.5, y + 0.5).setCollisionGroups(G_STATIC),
+            RAPIER.ColliderDesc.cuboid(0.5, 0.5).setTranslation(x + 0.5, y + 0.5).setCollisionGroups(GROUPS.WATER),
           );
         }
       }
+    }
+    // 世界边界墙
+    const half = MAP / 2;
+    const walls: [number, number, number, number][] = [
+      [half, -1, half + 2, 1],
+      [half, MAP + 1, half + 2, 1],
+      [-1, half, 1, half + 2],
+      [MAP + 1, half, 1, half + 2],
+    ];
+    for (const [cx, cy, hx, hy] of walls) {
+      this.physWorld.createCollider(
+        RAPIER.ColliderDesc.cuboid(hx, hy).setTranslation(cx, cy).setCollisionGroups(G_STATIC),
+      );
     }
   }
 
@@ -360,7 +390,8 @@ export class Game {
 
   private handleEsc(): void {
     if (this.menuOpen) {
-      this.campfireAction('close');
+      if (this.menuKind === 'shop') this.closeShop();
+      else this.campfireAction('close');
     } else if (this.paused) {
       this.setPaused(false);
     } else if (this.state === 'playing') {
@@ -492,6 +523,7 @@ export class Game {
       if (nearCf) {
         this.activeCampfire = nearCf;
         this.menuOpen = true;
+        this.menuKind = 'campfire';
         hud.updateCampfireMenu(this.player);
         hud.showScreen('campfire');
         sfx.ui();
@@ -554,6 +586,7 @@ export class Game {
     this.minimapT -= dt;
     if (this.minimapT <= 0) {
       this.minimapT = 0.35;
+      this.revealAround(this.player.x, this.player.y);
       hud.drawMinimap(this.worldData, this.player.x, this.player.y, !this.bossDefeated);
     }
 
@@ -568,6 +601,20 @@ export class Game {
     } else {
       hud.setBossBar(null);
     }
+  }
+
+  /** 揭开玩家周围的战争迷雾 */
+  private revealAround(x: number, y: number, r = 14): void {
+    const x0 = Math.max(0, Math.floor(x - r));
+    const x1 = Math.min(MAP - 1, Math.ceil(x + r));
+    const y0 = Math.max(0, Math.floor(y - r));
+    const y1 = Math.min(MAP - 1, Math.ceil(y + r));
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        if ((tx - x) ** 2 + (ty - y) ** 2 <= r * r) this.explored[ty * MAP + tx] = 1;
+      }
+    }
+    hud.revealFog(x, y, r);
   }
 
   // ---------------- 战斗与采集 ----------------
@@ -591,13 +638,17 @@ export class Game {
       if (Math.abs(ang) > wd.arc / 2 + 0.3) continue;
 
       const crit = Math.random() < 0.1;
-      const dmg = wd.dmg * player.dmgMul * (0.9 + Math.random() * 0.25) * (crit ? 1.7 : 1);
+      const dmg = player.weaponDmg(wd) * (0.9 + Math.random() * 0.25) * (crit ? 1.7 : 1);
       const kdir = Math.atan2(dy, dx);
       a.damage(dmg, Math.cos(kdir) * wd.knock, Math.sin(kdir) * wd.knock, this);
       if (crit) this.floats.show(a.x, a.y - 1, '暴击!', 0xffd24a, 14);
+      if (wd.flame && !a.dead) a.burnT = Math.max(a.burnT, 3); // 点燃
       hitAnimal = true;
       this.hitstop(a.dead ? 0.09 : 0.035);
-      if (a.dead) this.addShake(0.22);
+      if (a.dead) {
+        this.addShake(0.22);
+        if (player.hasTalent('vampire')) player.heal(4, this); // 嗜血：击杀回血
+      }
     }
     if (hitAnimal) sfx.hit();
 
@@ -619,23 +670,26 @@ export class Game {
         best = n;
       }
     }
-    if (best) this.harvestHit(best);
+    if (best) this.harvestHit(best, wd);
   }
 
-  private harvestHit(n: WNode): void {
+  private harvestHit(n: WNode, wd?: WeaponDef): void {
     n.wobbleT = 0.35;
+    // 战斧加成 + 拾荒者天赋
+    let bonus = wd?.chopBonus ?? 0;
+    if (this.player.hasTalent('scavenger') && Math.random() < 0.3) bonus += 1;
     if (n.kind === 'tree' || n.kind === 'palm') {
-      this.drops.spawn('wood', n.x, n.y - 0.3, 1);
+      this.drops.spawn('wood', n.x, n.y - 0.3, 1 + bonus);
       this.particles.burst(n.x, n.y - 0.7, { color: 0x4e9a44, count: 7, speed: 2.5, life: 0.55, size: 3 });
       sfx.chop();
       n.hp--;
-      if (n.hp <= 0) this.destroyNode(n, 'wood', 2);
+      if (n.hp <= 0) this.destroyNode(n, 'wood', 2 + bonus);
     } else if (n.kind === 'rock') {
-      this.drops.spawn('stone', n.x, n.y - 0.2, 1);
+      this.drops.spawn('stone', n.x, n.y - 0.2, 1 + bonus);
       this.particles.burst(n.x, n.y - 0.3, { color: 0xb0b0a8, count: 6, speed: 2.5, life: 0.45, size: 2.5 });
       sfx.hit();
       n.hp--;
-      if (n.hp <= 0) this.destroyNode(n, 'stone', 2);
+      if (n.hp <= 0) this.destroyNode(n, 'stone', 2 + bonus);
     } else if (n.kind === 'bush') {
       this.harvestBush(n);
     }
@@ -747,6 +801,7 @@ export class Game {
   campfireAction(action: 'rest' | 'atk' | 'hp' | 'stam' | 'close'): void {
     if (action === 'close') {
       this.menuOpen = false;
+      this.menuKind = null;
       this.activeCampfire = null;
       hud.showScreen(null);
       return;
@@ -793,10 +848,107 @@ export class Game {
     hud.updateCampfireMenu(p);
   }
 
+  // ---------------- 商店 ----------------
+
+  openShop(): void {
+    this.menuOpen = true;
+    this.menuKind = 'shop';
+    hud.showScreen('shop');
+    hud.renderShop(this.player, this.shopTab);
+    sfx.ui();
+  }
+
+  closeShop(): void {
+    this.menuOpen = false;
+    this.menuKind = null;
+    hud.showScreen(null);
+    sfx.ui();
+  }
+
+  setShopTab(tab: hud.ShopTab): void {
+    this.shopTab = tab;
+    hud.renderShop(this.player, this.shopTab);
+    sfx.ui();
+  }
+
+  shopAction(act: string, id: string): void {
+    const p = this.player;
+    if (act === 'buy-weapon') {
+      const wd = WEAPON_BY_ID[id];
+      if (!wd?.price || p.weapons.includes(id)) return;
+      if (!p.canAfford(wd.price)) {
+        hud.toast('💰 钱币不足…');
+        return;
+      }
+      p.pay(wd.price);
+      p.weapons.push(id);
+      hud.buildHotbar(p.weapons, p.weaponIdx);
+      hud.toast(`🛒 购入 ${wd.icon} ${wd.name}！按 ${p.weapons.length} 键装备`);
+      sfx.upgrade();
+    } else if (act === 'upg-weapon') {
+      if (!p.weapons.includes(id)) return;
+      const lvl = p.weaponLvls[id] ?? 0;
+      if (lvl >= WEAPON_UPG.maxLvl) return;
+      const cost = WEAPON_UPG.cost(lvl);
+      if (!p.canAfford(cost)) {
+        hud.toast('💰 钱币不足…');
+        return;
+      }
+      p.pay(cost);
+      p.weaponLvls[id] = lvl + 1;
+      hud.toast(`⚒️ ${WEAPON_BY_ID[id].name} 强化至 Lv.${lvl + 1}`);
+      sfx.upgrade();
+    } else if (act === 'buy-talent') {
+      const t = TALENT_BY_ID[id];
+      if (!t || p.talents.has(id)) return;
+      if (!p.canAfford(t.price)) {
+        hud.toast('💰 钱币不足…');
+        return;
+      }
+      p.pay(t.price);
+      p.talents.add(id);
+      hud.toast(`${t.icon} 习得天赋「${t.name}」`);
+      sfx.upgrade();
+    } else if (act === 'buy-skin') {
+      const s = SKIN_BY_ID[id];
+      if (!s?.price || p.skins.includes(id)) return;
+      if (!p.canAfford(s.price)) {
+        hud.toast('💰 钱币不足…');
+        return;
+      }
+      p.pay(s.price);
+      p.skins.push(id);
+      p.activeSkin = id;
+      p.drawWeapon();
+      hud.toast(`✨ 武器换上「${s.name}」皮肤`);
+      sfx.upgrade();
+    } else if (act === 'buy-gear') {
+      const g = GEAR_BY_ID[id];
+      if (!g || p.gear.has(id)) return;
+      if (!p.canAfford(g.price)) {
+        hud.toast('💰 钱币不足…');
+        return;
+      }
+      p.pay(g.price);
+      p.gear.add(id);
+      hud.toast(`${g.icon} 购入${g.name}！靠近水面即可自动乘船`);
+      sfx.upgrade();
+    } else if (act === 'equip-skin') {
+      if (!p.skins.includes(id)) return;
+      p.activeSkin = id;
+      p.drawWeapon();
+      sfx.ui();
+    } else {
+      return;
+    }
+    hud.updateCoins(p.coins);
+    hud.renderShop(p, this.shopTab);
+  }
+
   private saveNow(): void {
     const p = this.player;
     const data: SaveData = {
-      version: 1,
+      version: 3,
       seed: this.seed,
       campfireId: this.campfireId,
       removedNodes: [...this.removedNodes],
@@ -810,7 +962,15 @@ export class Game {
         weapon: p.weaponIdx,
         res: { ...p.res },
         upgrades: { ...p.upgrades },
+        coins: { ...p.coins },
+        weapons: [...p.weapons],
+        weaponLvls: { ...p.weaponLvls },
+        skins: [...p.skins],
+        activeSkin: p.activeSkin,
+        talents: [...p.talents],
+        gear: [...p.gear],
       },
+      explored: packExplored(this.explored),
       playTime: this.playTime,
     };
     writeSave(data);

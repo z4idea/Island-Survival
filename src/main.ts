@@ -51,7 +51,20 @@ function init(): void {
   $('cf-atk').addEventListener('click', () => game?.campfireAction('atk'));
   $('cf-hp').addEventListener('click', () => game?.campfireAction('hp'));
   $('cf-stam').addEventListener('click', () => game?.campfireAction('stam'));
+  $('cf-shop').addEventListener('click', () => game?.openShop());
   $('cf-close').addEventListener('click', () => game?.campfireAction('close'));
+
+  // 商店：选项卡与购买按钮事件委托
+  $('shop-close').addEventListener('click', () => game?.closeShop());
+  $('shop-menu').addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('[data-tab],[data-act]') as HTMLElement | null;
+    if (!target || !game) return;
+    if (target.dataset.tab) {
+      game.setShopTab(target.dataset.tab as never);
+    } else if (target.dataset.act && target.dataset.id) {
+      game.shopAction(target.dataset.act, target.dataset.id);
+    }
+  });
 
   hud.showScreen('title');
 }

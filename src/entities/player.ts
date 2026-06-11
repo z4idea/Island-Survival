@@ -3,7 +3,10 @@
 
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Container, Graphics } from 'pixi.js';
-import { PLAYER, SCALE, WEAPONS, type ResKind, type WeaponDef, Tile } from '../defs';
+import {
+  CURRENCY, GROUPS, PLAYER, SCALE, WEAPON_BY_ID, WEAPON_UPG, SKIN_BY_ID, Tile,
+  type CurrencyKind, type Price, type ResKind, type WeaponDef,
+} from '../defs';
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
 import * as hud from '../ui/hud';
@@ -12,6 +15,7 @@ export class Player {
   body: RAPIER.RigidBody;
   root = new Container();
   private shadow = new Graphics();
+  private boatG = new Graphics();
   private bodyC = new Container(); // 身体（带走路弹跳）
   private figure = new Graphics();
   private weaponG = new Graphics();
@@ -26,6 +30,18 @@ export class Player {
   res: Record<ResKind, number> = { wood: 0, stone: 0, berry: 0, meat: 0, hide: 0 };
   upgrades = { atk: 0, hp: 0, stam: 0 };
   weaponIdx = 0;
+  weapons: string[] = ['sword', 'spear', 'bow']; // 已拥有武器 id
+  weaponLvls: Record<string, number> = {};
+  coins: Record<CurrencyKind, number> = { silver: 0, gold: 0, diamond: 0 };
+  skins: string[] = ['default'];
+  activeSkin = 'default';
+  talents = new Set<string>();
+  gear = new Set<string>(); // 道具（小木舟等）
+  sailing = false; // 当前是否乘船
+  waterT = 0; // 在水中（未乘船）的持续时间
+  private drownTick = 0;
+  private rippleT = 0;
+  private collider: RAPIER.Collider;
   dead = false;
 
   aim = 0;
@@ -50,7 +66,7 @@ export class Player {
     this.y = y;
     const desc = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y).lockRotations().setCcdEnabled(true);
     this.body = world.createRigidBody(desc);
-    world.createCollider(
+    this.collider = world.createCollider(
       RAPIER.ColliderDesc.ball(PLAYER.radius).setCollisionGroups(groups).setFriction(0).setRestitution(0),
       this.body,
     );
@@ -58,6 +74,14 @@ export class Player {
     this.shadow.ellipse(0, 6, 12, 5).fill({ color: 0x000000, alpha: 0.28 });
     this.root.addChild(this.shadow);
     this.root.addChild(this.slashG);
+    // 小木舟（乘船时显示）
+    this.boatG.ellipse(0, 3, 18, 10).fill(0x7a5230);
+    this.boatG.ellipse(0, 3, 14, 7).fill(0x9a7048);
+    this.boatG.poly([14, 3, 24, 1, 24, 5]).fill(0x7a5230); // 船头
+    this.boatG.rect(-4, -1, 8, 2).fill(0x5e3d26); // 座板
+    this.boatG.ellipse(0, 3, 18, 10).stroke({ width: 2, color: 0x5e3d26 });
+    this.boatG.visible = false;
+    this.root.addChild(this.boatG);
     this.drawFigure();
     this.bodyC.addChild(this.figure);
     this.bodyC.addChild(this.weaponG);
@@ -66,11 +90,38 @@ export class Player {
   }
 
   get weapon(): WeaponDef {
-    return WEAPONS[this.weaponIdx];
+    return WEAPON_BY_ID[this.weapons[this.weaponIdx]] ?? WEAPON_BY_ID.sword;
   }
 
   get dmgMul(): number {
     return 1 + this.upgrades.atk * 0.15;
+  }
+
+  /** 武器最终伤害：基础 × 武器等级 × 篝火攻击强化 */
+  weaponDmg(wd: WeaponDef): number {
+    const lvl = this.weaponLvls[wd.id] ?? 0;
+    return wd.dmg * (1 + WEAPON_UPG.dmgPerLvl * lvl) * this.dmgMul;
+  }
+
+  hasTalent(id: string): boolean {
+    return this.talents.has(id);
+  }
+
+  canAfford(price: Price): boolean {
+    return Object.entries(price).every(([k, n]) => this.coins[k as CurrencyKind] >= (n ?? 0));
+  }
+
+  pay(price: Price): void {
+    for (const [k, n] of Object.entries(price)) {
+      this.coins[k as CurrencyKind] -= n ?? 0;
+    }
+  }
+
+  addCoin(kind: CurrencyKind, n: number, game: Game): void {
+    this.coins[kind] += n;
+    hud.bumpCoin(kind, this.coins[kind]);
+    game.floats.show(this.x, this.y - 0.5, `+${n}${CURRENCY[kind].char}`, CURRENCY[kind].color, 13);
+    sfx.pickup();
   }
 
   private drawFigure(): void {
@@ -85,24 +136,62 @@ export class Player {
     g.rect(-6.5, -6.5, 13, 3).fill(0xc94f3d);
   }
 
-  /** 根据当前武器重绘手持物 */
+  /** 根据当前武器与皮肤重绘手持物 */
   drawWeapon(): void {
     const g = this.weaponG;
     g.clear();
     const wd = this.weapon;
-    if (wd.id === 'sword') {
-      g.rect(10, -1.5, 7, 3).fill(0x6b4a2c); // 柄
-      g.rect(16, -3.5, 3, 7).fill(0xb89a50); // 护手
-      g.poly([19, -2.5, 36, -1, 38, 0, 36, 1, 19, 2.5]).fill(0xd8dee2); // 刃
-    } else if (wd.id === 'spear') {
-      g.rect(6, -1.2, 40, 2.4).fill(0x8a6a3c);
-      g.poly([46, -4, 56, 0, 46, 4]).fill(0xc8ced2);
-    } else {
-      // 弓
-      g.arc(22, 0, 13, -Math.PI / 2.2, Math.PI / 2.2).stroke({ width: 3, color: 0x8a6a3c });
-      g.moveTo(22 + 13 * Math.cos(-Math.PI / 2.2), 13 * Math.sin(-Math.PI / 2.2))
-        .lineTo(22 + 13 * Math.cos(Math.PI / 2.2), 13 * Math.sin(Math.PI / 2.2))
-        .stroke({ width: 1, color: 0xd8d4c8 });
+    const skin = SKIN_BY_ID[this.activeSkin] ?? SKIN_BY_ID.default;
+    const useSkin = skin.id !== 'default';
+    // 各武器的本色刃部 / 配件色，可被皮肤覆盖
+    const blade = (natural: number) => (useSkin ? skin.blade : natural);
+    const accent = (natural: number) => (useSkin ? skin.accent : natural);
+
+    switch (wd.id) {
+      case 'sword':
+        g.rect(10, -1.5, 7, 3).fill(0x6b4a2c); // 柄
+        g.rect(16, -3.5, 3, 7).fill(accent(0xb89a50)); // 护手
+        g.poly([19, -2.5, 36, -1, 38, 0, 36, 1, 19, 2.5]).fill(blade(0xd8dee2)); // 刃
+        break;
+      case 'spear':
+        g.rect(6, -1.2, 40, 2.4).fill(0x8a6a3c);
+        g.poly([46, -4, 56, 0, 46, 4]).fill(blade(0xc8ced2));
+        break;
+      case 'axe':
+        g.rect(8, -1.6, 26, 3.2).fill(0x7a5a34); // 长柄
+        g.poly([30, -3, 28, -12, 40, -8, 38, 0]).fill(blade(0xc8ced2)); // 上刃
+        g.poly([30, 3, 28, 12, 40, 8, 38, 0]).fill(blade(0xb8bec4)); // 下刃
+        g.rect(29, -3, 4, 6).fill(accent(0x8a8f99));
+        break;
+      case 'daggers':
+        g.rect(8, -6.5, 6, 2.4).fill(0x5a4a32); // 双柄
+        g.rect(8, 4.1, 6, 2.4).fill(0x5a4a32);
+        g.poly([14, -6.5, 26, -5.8, 27, -5.3, 14, -4.1]).fill(blade(0xd8dee2)); // 双刃
+        g.poly([14, 4.1, 26, 4.8, 27, 5.3, 14, 6.5]).fill(blade(0xd8dee2));
+        break;
+      case 'hammer':
+        g.rect(8, -1.6, 24, 3.2).fill(0x7a5a34); // 柄
+        g.roundRect(28, -8, 13, 16, 2).fill(blade(0x9aa0a8)); // 锤头
+        g.rect(28, -8, 4, 16).fill(accent(0x6e747e));
+        break;
+      case 'bow':
+        g.arc(22, 0, 13, -Math.PI / 2.2, Math.PI / 2.2).stroke({ width: 3, color: blade(0x8a6a3c) });
+        g.moveTo(22 + 13 * Math.cos(-Math.PI / 2.2), 13 * Math.sin(-Math.PI / 2.2))
+          .lineTo(22 + 13 * Math.cos(Math.PI / 2.2), 13 * Math.sin(Math.PI / 2.2))
+          .stroke({ width: 1, color: 0xd8d4c8 });
+        break;
+      case 'crossbow':
+        g.rect(8, -2, 22, 4).fill(0x6b4a2c); // 弩身
+        g.arc(26, 0, 10, -Math.PI / 1.9, Math.PI / 1.9).stroke({ width: 3, color: blade(0x8a8f99) }); // 弩臂
+        g.moveTo(26, -10).lineTo(26, 10).stroke({ width: 1, color: 0xd8d4c8 });
+        g.rect(24, -1, 12, 2).fill(accent(0x9a7448)); // 上弦的弩矢
+        break;
+      case 'flamesword':
+        g.rect(10, -1.5, 7, 3).fill(0x3a2a1c);
+        g.rect(16, -3.5, 3, 7).fill(accent(0x8b3a10));
+        g.poly([19, -2.5, 36, -1, 38, 0, 36, 1, 19, 2.5]).fill(blade(0xff8a3a)); // 烈焰刃
+        g.poly([21, -2, 30, -1.2, 30, 1.2, 21, 2]).fill(useSkin ? skin.blade : 0xffd24a); // 焰心
+        break;
     }
   }
 
@@ -166,6 +255,17 @@ export class Player {
     }
 
     // 速度
+    // 水面状态：拥有小木舟则自动乘船（乘船可穿越深水屏障）
+    const tileHere = game.worldData.tile(this.x, this.y);
+    const onWater = tileHere <= Tile.Water;
+    const sailingNow = onWater && this.gear.has('boat');
+    if (sailingNow !== this.sailing) {
+      this.sailing = sailingNow;
+      this.collider.setCollisionGroups(sailingNow ? GROUPS.PLAYER_BOAT : GROUPS.PLAYER);
+      this.boatG.visible = sailingNow;
+      this.shadow.visible = !sailingNow;
+    }
+
     let vx: number;
     let vy: number;
     if (this.dashT > 0) {
@@ -173,10 +273,57 @@ export class Player {
       vx = this.dashDx * PLAYER.dashSpeed;
       vy = this.dashDy * PLAYER.dashSpeed;
     } else {
-      const inWater = game.worldData.tile(this.x, this.y) === Tile.Water;
-      const sp = PLAYER.speed * (inWater ? 0.55 : 1);
+      const sp = this.sailing
+        ? 7.0
+        : PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1);
       vx = mx * sp;
       vy = my * sp;
+    }
+
+    // 溺水：在水中（未乘船）超过 5 秒持续掉血
+    if (onWater && !this.sailing && !this.dead) {
+      if (this.waterT <= 3.5 && this.waterT + dt > 3.5) {
+        game.floats.show(this.x, this.y - 0.8, '体力不支…', 0x6ec6e0, 13);
+      }
+      this.waterT += dt;
+      if (this.waterT > 5) {
+        this.drownTick -= dt;
+        if (this.drownTick <= 0) {
+          this.drownTick = 1;
+          this.hp -= 4;
+          game.floats.show(this.x, this.y - 0.6, '溺水 -4', 0x6ec6e0, 14);
+          game.particles.burst(this.x, this.y, { color: 0xa8d8e8, count: 5, speed: 1.5, life: 0.5, size: 2.5, alpha: 0.8 });
+          if (this.hp <= 0) {
+            this.hp = 0;
+            this.dead = true;
+            game.onPlayerDeath();
+            return;
+          }
+        }
+      }
+    } else {
+      this.waterT = 0;
+      this.drownTick = 0;
+    }
+
+    // 乘船视觉：船头转向 + 航迹涟漪
+    if (this.sailing) {
+      const lv = this.body.linvel();
+      const spd = Math.hypot(lv.x, lv.y);
+      if (spd > 0.5) {
+        const target = Math.atan2(lv.y, lv.x);
+        let diff = target - this.boatG.rotation;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.boatG.rotation += diff * Math.min(1, dt * 8);
+        this.rippleT -= dt;
+        if (this.rippleT <= 0) {
+          this.rippleT = 0.18;
+          game.particles.burst(this.x - lv.x * 0.06, this.y + 0.15 - lv.y * 0.06, {
+            color: 0xcfeef2, count: 2, speed: 0.8, life: 0.6, size: 2.5, alpha: 0.5,
+          });
+        }
+      }
     }
     // 击退衰减
     const damp = Math.max(0, 1 - 6 * dt);
@@ -187,8 +334,8 @@ export class Player {
     // 耐力恢复
     if (this.stamDelay <= 0) this.stam = Math.min(this.maxStam, this.stam + PLAYER.staminaRegen * dt);
 
-    // 武器切换
-    for (let i = 0; i < 3; i++) {
+    // 武器切换（数字键对应已拥有武器列表）
+    for (let i = 0; i < this.weapons.length && i < 8; i++) {
       if (input.wasPressed(`Digit${i + 1}`) && this.weaponIdx !== i) {
         this.weaponIdx = i;
         this.drawWeapon();
@@ -210,7 +357,7 @@ export class Player {
       (this.hp < this.maxHp || this.poisonT > 0)
     ) {
       this.res.berry--;
-      this.heal(10, game);
+      this.heal(6, game);
       this.curePoison(game);
       this.eatCd = 1.0; // 进食有冷却，战斗中不能无限回血
       hud.bumpRes('berry', this.res.berry);
@@ -223,7 +370,7 @@ export class Player {
       (this.hp < this.maxHp || this.poisonT > 0)
     ) {
       this.res.meat--;
-      this.heal(22, game);
+      this.heal(14, game);
       this.curePoison(game);
       this.eatCd = 1.0; // 进食有冷却，战斗中不能无限回血
       hud.bumpRes('meat', this.res.meat);
@@ -262,12 +409,20 @@ export class Player {
         this.x + Math.cos(this.aim) * 0.5,
         this.y + Math.sin(this.aim) * 0.5,
         this.aim,
-        17,
-        wd.dmg * this.dmgMul,
+        wd.projSpeed ?? 17,
+        this.weaponDmg(wd),
         wd.knock,
       );
       sfx.bow();
     } else {
+      if (wd.flame) {
+        // 烈焰剑挥舞时的火星
+        game.particles.burst(
+          this.x + Math.cos(this.aim) * wd.range * 0.7,
+          this.y + Math.sin(this.aim) * wd.range * 0.7,
+          { color: 0xff8a3a, count: 5, speed: 2, life: 0.4, size: 2.5, alpha: 0.9 },
+        );
+      }
       if (wd.lunge) {
         this.kvx += Math.cos(this.aim) * wd.lunge;
         this.kvy += Math.sin(this.aim) * wd.lunge;
@@ -282,11 +437,13 @@ export class Player {
     const g = this.slashG;
     g.clear();
     const r = wd.range * SCALE;
+    const skin = SKIN_BY_ID[this.activeSkin] ?? SKIN_BY_ID.default;
+    const color = wd.flame && skin.id === 'default' ? 0xffa050 : skin.slash;
     if (wd.id === 'spear') {
-      g.poly([8, -3, r, -1.2, r, 1.2, 8, 3]).fill({ color: 0xffffff, alpha: 0.5 });
+      g.poly([8, -3, r, -1.2, r, 1.2, 8, 3]).fill({ color, alpha: 0.5 });
     } else {
       g.arc(0, 0, r * 0.85, -wd.arc / 2, wd.arc / 2).arc(0, 0, r * 0.45, wd.arc / 2, -wd.arc / 2, true).closePath();
-      g.fill({ color: 0xffffff, alpha: 0.4 });
+      g.fill({ color, alpha: 0.4 });
     }
     g.rotation = this.aim;
     g.alpha = 1;
@@ -321,6 +478,7 @@ export class Player {
   /** 返回 true 表示伤害实际生效（未被无敌帧挡掉） */
   takeDamage(dmg: number, kx: number, ky: number, game: Game): boolean {
     if (this.dead || this.iframes > 0) return false;
+    if (this.hasTalent('tough')) dmg *= 0.9;
     this.hp -= dmg;
     this.iframes = 0.7;
     this.kvx += kx;
@@ -340,9 +498,10 @@ export class Player {
   }
 
   private animate(dt: number): void {
-    if (this.moving) this.bobT += dt * 11;
-    const bob = this.moving ? Math.abs(Math.sin(this.bobT)) * 2.5 : 0;
-    this.bodyC.y = -bob;
+    if (this.sailing) this.bobT += dt * 3;
+    else if (this.moving) this.bobT += dt * 11;
+    const bob = this.moving && !this.sailing ? Math.abs(Math.sin(this.bobT)) * 2.5 : 0;
+    this.bodyC.y = this.sailing ? -3 + Math.sin(this.bobT) * 1.2 : -bob;
     this.bodyC.scale.y = 1 - (this.moving ? Math.abs(Math.cos(this.bobT)) * 0.05 : 0);
 
     // 翻滚时旋转身体

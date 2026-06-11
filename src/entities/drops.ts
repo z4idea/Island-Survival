@@ -1,12 +1,20 @@
 // @author: zhjj
-// 掉落物：散落、吸附、拾取
+// 掉落物：散落、吸附、拾取（资源 emoji + 货币彩色符号）
 
 import { Container, Text } from 'pixi.js';
-import { RES_EMOJI, SCALE, type ResKind } from '../defs';
+import { CURRENCY, RES_EMOJI, SCALE, type CurrencyKind, type ResKind } from '../defs';
 import type { Game } from '../game';
 
+export type DropKind = ResKind | CurrencyKind;
+
+const CURRENCY_KINDS: ReadonlySet<string> = new Set(['silver', 'gold', 'diamond']);
+
+function isCurrency(kind: DropKind): kind is CurrencyKind {
+  return CURRENCY_KINDS.has(kind);
+}
+
 interface Drop {
-  kind: ResKind;
+  kind: DropKind;
   x: number;
   y: number;
   vx: number;
@@ -19,13 +27,22 @@ export class Drops {
   container = new Container();
   private list: Drop[] = [];
 
-  spawn(kind: ResKind, x: number, y: number, count = 1): void {
+  spawn(kind: DropKind, x: number, y: number, count = 1): void {
     for (let i = 0; i < count; i++) {
-      if (this.list.length > 120) return;
-      const sprite = new Text({
-        text: RES_EMOJI[kind],
-        style: { fontSize: 18 },
-      });
+      if (this.list.length > 140) return;
+      const sprite = isCurrency(kind)
+        ? new Text({
+            text: CURRENCY[kind].char,
+            style: {
+              fontSize: 17,
+              fill: CURRENCY[kind].color,
+              stroke: { color: 0x2a2008, width: 3 },
+            },
+          })
+        : new Text({
+            text: RES_EMOJI[kind],
+            style: { fontSize: 18 },
+          });
       sprite.anchor.set(0.5);
       const ang = Math.random() * Math.PI * 2;
       const sp = 2 + Math.random() * 2.5;
@@ -65,9 +82,17 @@ export class Drops {
       d.y += d.vy * dt;
       d.sprite.position.set(d.x * SCALE, d.y * SCALE);
       d.sprite.y += Math.sin(d.t * 5 + i) * 2; // 漂浮感
+      // 货币微微闪烁
+      if (isCurrency(d.kind)) {
+        d.sprite.alpha = 0.8 + 0.2 * Math.sin(d.t * 7 + i);
+      }
       // 拾取
       if (d.t > 0.35 && dist < 0.55 && !p.dead) {
-        p.addRes(d.kind, 1, game);
+        if (isCurrency(d.kind)) {
+          p.addCoin(d.kind, 1, game);
+        } else {
+          p.addRes(d.kind, 1, game);
+        }
         this.container.removeChild(d.sprite);
         d.sprite.destroy();
         this.list.splice(i, 1);

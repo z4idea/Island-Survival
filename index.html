@@ -34,6 +34,11 @@
         <span class="res"><i>🍖</i><b id="res-meat">0</b></span>
         <span class="res"><i>🐾</i><b id="res-hide">0</b></span>
       </div>
+      <div id="currencies">
+        <span class="res cur-silver"><i>●</i><b id="coin-silver">0</b></span>
+        <span class="res cur-gold"><i>●</i><b id="coin-gold">0</b></span>
+        <span class="res cur-diamond"><i>◆</i><b id="coin-diamond">0</b></span>
+      </div>
     </div>
 
     <div id="minimap-box">
@@ -46,11 +51,8 @@
       <div class="bar boss-bar"><div id="boss-fill" class="bar-fill"></div></div>
     </div>
 
-    <div id="hotbar">
-      <div class="slot" data-slot="0"><span class="slot-key">1</span><span class="slot-icon">🗡️</span><span class="slot-name">猎刀</span></div>
-      <div class="slot" data-slot="1"><span class="slot-key">2</span><span class="slot-icon">🔱</span><span class="slot-name">长矛</span></div>
-      <div class="slot" data-slot="2"><span class="slot-key">3</span><span class="slot-icon">🏹</span><span class="slot-name">短弓</span></div>
-    </div>
+    <!-- 武器栏按已拥有武器动态生成 -->
+    <div id="hotbar"></div>
 
     <div id="prompt" class="hidden"></div>
     <div id="toast" class="hidden"></div>
@@ -120,7 +122,22 @@
       <button id="cf-atk" class="btn cf-upgrade"></button>
       <button id="cf-hp" class="btn cf-upgrade"></button>
       <button id="cf-stam" class="btn cf-upgrade"></button>
+      <button id="cf-shop" class="btn">🛒 神秘商人的货摊</button>
       <button id="cf-close" class="btn btn-ghost">离开（Esc）</button>
+    </div>
+  </div>
+
+  <!-- 商店 -->
+  <div id="shop-menu" class="overlay hidden">
+    <div class="panel shop-panel">
+      <div class="shop-head">
+        <h2>🛒 神秘商人</h2>
+        <div id="shop-coins"></div>
+      </div>
+      <p class="dim shop-greeting">"漂流者，看看这些好货——用野兽身上的钱币来换。"</p>
+      <div id="shop-tabs"></div>
+      <div id="shop-items"></div>
+      <button id="shop-close" class="btn btn-ghost">离开（Esc）</button>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

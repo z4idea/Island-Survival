@@ -3,7 +3,7 @@
 
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Container, Graphics } from 'pixi.js';
-import { ANIMALS, SCALE, type AnimalDef, type AnimalKind, type ResKind } from '../defs';
+import { ANIMALS, COIN_TABLE, GROUPS, SCALE, Tile, type AnimalDef, type AnimalKind, type ResKind } from '../defs';
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
 
@@ -23,6 +23,8 @@ export class Animal {
   hp: number;
   dead = false;
   spawnIdx: number;
+  burnT = 0; // 灼烧剩余时间（烈焰剑）
+  private burnFxT = 0;
 
   private state: State = 'idle';
   private stateT = 0;
@@ -57,8 +59,8 @@ export class Animal {
 
     const desc = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y).lockRotations();
     this.body = world.createRigidBody(desc);
-    // 飞行动物不参与碰撞（可以越过水面与障碍）
-    const colGroups = this.def.flying ? (0x0004 << 16) | 0x0000 : groups;
+    // 飞行动物不参与碰撞（可以越过水面与障碍）；海洋动物只与玩家碰撞
+    const colGroups = this.def.flying ? (0x0004 << 16) | 0x0000 : this.def.marine ? GROUPS.MARINE : groups;
     world.createCollider(
       RAPIER.ColliderDesc.ball(this.def.radius).setCollisionGroups(colGroups).setFriction(0),
       this.body,
@@ -159,6 +161,55 @@ export class Animal {
         g.poly([-10, 0, -16, -1, -15, 2]).fill(0x3a3a3a); // 黑色翼尖
         break;
       }
+      case 'tiger': {
+        g.ellipse(-1, 0, 19, 12).fill(c);
+        // 黑色条纹
+        for (const sx of [-12, -5, 2, 9]) {
+          g.moveTo(sx, -10).quadraticCurveTo(sx + 2, 0, sx, 10).stroke({ width: 2.5, color: 0x3a2a1a });
+        }
+        g.circle(15, -1, 8).fill(c); // 头
+        g.poly([10, -8, 14, -13, 17, -7]).fill(0x3a2a1a); // 耳朵
+        g.poly([18, -8, 23, -12, 23, -6]).fill(0x3a2a1a);
+        g.ellipse(20, 2, 4.5, 3.5).fill(0xf0e0c8); // 吻部
+        g.circle(17, -3.5, 1.8).fill(0xffd24a); // 眼
+        g.circle(13, -4, 1.8).fill(0xffd24a);
+        g.moveTo(-19, -2).quadraticCurveTo(-26, -6, -28, -1).stroke({ width: 3.5, color: c }); // 尾巴
+        g.moveTo(-26, -4).lineTo(-28, -1).stroke({ width: 3.5, color: 0x3a2a1a });
+        break;
+      }
+      case 'fish': {
+        g.ellipse(1, 0, 9, 5).fill(c);
+        g.poly([-7, 0, -14, -5, -14, 5]).fill(0x4e88b8); // 尾鳍
+        g.poly([0, -4, 4, -9, 7, -4]).fill(0x4e88b8); // 背鳍
+        g.circle(6, -1, 1.3).fill(0x1a1a2a);
+        g.ellipse(2, 2, 4, 1.5).fill(0x9ac8e8); // 腹部高光
+        break;
+      }
+      case 'turtle': {
+        g.ellipse(0, 0, 14, 11).fill(0x3a6a4e); // 壳底
+        g.ellipse(0, 0, 11, 8.5).fill(c); // 壳面
+        g.moveTo(-8, -4).lineTo(8, -4).stroke({ width: 1.2, color: 0x3a6a4e }); // 壳纹
+        g.moveTo(-9, 1).lineTo(9, 1).stroke({ width: 1.2, color: 0x3a6a4e });
+        g.moveTo(-3, -8).lineTo(-3, 7).stroke({ width: 1.2, color: 0x3a6a4e });
+        g.moveTo(4, -8).lineTo(4, 7).stroke({ width: 1.2, color: 0x3a6a4e });
+        g.circle(14, 0, 4).fill(0x6aa87e); // 头
+        g.circle(15.5, -1.5, 1.1).fill(0x1a1a1a);
+        g.ellipse(-7, -10, 4, 2).fill(0x6aa87e); // 鳍肢
+        g.ellipse(-7, 10, 4, 2).fill(0x6aa87e);
+        g.ellipse(7, -10, 4, 2).fill(0x6aa87e);
+        g.ellipse(7, 10, 4, 2).fill(0x6aa87e);
+        break;
+      }
+      case 'shark': {
+        g.ellipse(0, 0, 20, 8).fill(c);
+        g.ellipse(2, 2.5, 16, 4.5).fill(0xc8d2da); // 白腹
+        g.poly([-16, 0, -26, -8, -22, 0, -26, 6]).fill(c); // 尾鳍
+        g.poly([-2, -7, 4, -17, 8, -7]).fill(0x5e6e7e); // 背鳍
+        g.poly([4, 5, 10, 12, 12, 5]).fill(0x5e6e7e); // 胸鳍
+        g.circle(14, -2.5, 1.6).fill(0x1a1a1a); // 眼
+        g.moveTo(12, 3).quadraticCurveTo(16, 5, 19, 3).stroke({ width: 1.5, color: 0x4a5a66 }); // 嘴
+        break;
+      }
       case 'bear': {
         g.ellipse(0, 0, 30, 22).fill(c);
         g.ellipse(0, 0, 30, 22).stroke({ width: 3, color: 0x3a2a1c });
@@ -205,6 +256,22 @@ export class Animal {
     this.x = t.x;
     this.y = t.y;
 
+    // 灼烧持续掉血
+    if (this.burnT > 0) {
+      this.burnT -= dt;
+      this.hp -= 7 * dt;
+      this.hpShowT = Math.max(this.hpShowT, 1);
+      this.burnFxT -= dt;
+      if (this.burnFxT <= 0) {
+        this.burnFxT = 0.22;
+        game.particles.burst(this.x, this.y - 0.3, { color: 0xff8a3a, count: 2, speed: 1.5, life: 0.45, size: 2.5, alpha: 0.9 });
+      }
+      if (this.hp <= 0) {
+        this.die(game);
+        return;
+      }
+    }
+
     const p = game.player;
     const dx = p.x - this.x;
     const dy = p.y - this.y;
@@ -227,7 +294,10 @@ export class Animal {
           const r = Math.random() * 4;
           this.tx = this.home.x + Math.cos(a) * r;
           this.ty = this.home.y + Math.sin(a) * r;
-          if (!game.worldData.isWalkable(this.tx, this.ty)) {
+          const targetOk = this.def.marine
+            ? game.worldData.isWater(this.tx, this.ty)
+            : game.worldData.isWalkable(this.tx, this.ty);
+          if (!targetOk) {
             this.tx = this.home.x;
             this.ty = this.home.y;
           }
@@ -321,7 +391,10 @@ export class Animal {
           this.setState('chase');
           break;
         }
-        if (this.stateT >= dur || !game.worldData.isWalkable(this.x + this.chargeDx, this.y + this.chargeDy)) {
+        const aheadBlocked = this.def.marine
+          ? !game.worldData.isWater(this.x + this.chargeDx, this.y + this.chargeDy)
+          : !game.worldData.isWalkable(this.x + this.chargeDx, this.y + this.chargeDy);
+        if (this.stateT >= dur || aheadBlocked) {
           this.setState('chase');
         }
         break;
@@ -336,6 +409,18 @@ export class Animal {
       vy = this.kvy;
       this.kvx *= Math.max(0, 1 - 5 * dt);
       this.kvy *= Math.max(0, 1 - 5 * dt);
+    }
+    // 海洋动物只能在水中移动（带轴向滑动，避免在岸边卡死）
+    if (this.def.marine && (vx !== 0 || vy !== 0)) {
+      const ok = (mx: number, my: number) => game.worldData.isWater(this.x + mx * 0.18, this.y + my * 0.18);
+      if (!ok(vx, vy)) {
+        if (ok(vx, 0)) vy = 0;
+        else if (ok(0, vy)) vx = 0;
+        else {
+          vx = 0;
+          vy = 0;
+        }
+      }
     }
     this.body.setLinvel({ x: vx, y: vy }, true);
 
@@ -360,7 +445,7 @@ export class Animal {
     } else {
       this.bodyC.x = 0;
     }
-    this.gfx.tint = this.flashT > 0 ? 0xffb0b0 : 0xffffff;
+    this.gfx.tint = this.flashT > 0 ? 0xffb0b0 : this.burnT > 0 ? 0xffc8a0 : 0xffffff;
 
     // 血条
     if (this.hpShowT > 0 || (this.def.boss && this.aggro)) {
@@ -443,8 +528,24 @@ export class Animal {
       this.body = null;
     }
     game.particles.burst(this.x, this.y, { color: this.def.color, count: 14, speed: 3.5, life: 0.6, size: 4 });
+    // 资源掉落（拾荒者天赋：30% 概率翻倍）
+    const mult = game.player.hasTalent('scavenger') && Math.random() < 0.3 ? 2 : 1;
     for (const [kind, n] of Object.entries(this.def.drops)) {
-      game.drops.spawn(kind as ResKind, this.x, this.y, n);
+      game.drops.spawn(kind as ResKind, this.x, this.y, n * mult);
+    }
+    // 钱币掉落（幸运天赋：概率 ×1.5）
+    const luck = game.player.hasTalent('lucky') ? 1.5 : 1;
+    if (this.def.boss) {
+      game.drops.spawn('silver', this.x, this.y, 18);
+      game.drops.spawn('gold', this.x, this.y, 6);
+      game.drops.spawn('diamond', this.x, this.y, 3);
+    } else {
+      const ct = COIN_TABLE[this.def.kind];
+      if (Math.random() < 0.65 * luck) {
+        game.drops.spawn('silver', this.x, this.y, Math.random() < 0.4 ? 2 : 1);
+      }
+      if (Math.random() < ct.gold * luck) game.drops.spawn('gold', this.x, this.y, 1);
+      if (Math.random() < ct.diamond * luck) game.drops.spawn('diamond', this.x, this.y, 1);
     }
     game.onAnimalKilled(this);
   }

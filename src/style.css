@@ -322,6 +322,88 @@ kbd {
 .pause-help { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
 
 .campfire-panel .btn { text-align: left; }
+
+/* ---------- 货币 ---------- */
+#currencies { display: flex; gap: 10px; margin-top: 5px; }
+.cur-silver i { color: #c8ccd2; font-style: normal; }
+.cur-gold i { color: #ffd24a; font-style: normal; }
+.cur-diamond i { color: #6ee0ff; font-style: normal; }
+
+/* ---------- 商店 ---------- */
+.shop-panel {
+  min-width: min(620px, 92vw);
+  max-height: 86vh;
+  padding: 26px 30px;
+  gap: 10px;
+}
+.shop-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.shop-head h2 { font-size: 22px; }
+#shop-coins { display: flex; gap: 14px; font-size: 15px; }
+.shop-greeting { font-size: 12.5px; margin-top: -4px; }
+.coin { color: var(--coin-color, #ffd24a); font-weight: 700; white-space: nowrap; }
+.coin + .coin { margin-left: 8px; }
+.coin.lack { opacity: 0.5; text-decoration: line-through; }
+
+#shop-tabs { display: flex; gap: 6px; }
+.shop-tab {
+  flex: 1;
+  padding: 8px 4px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.shop-tab:hover { color: var(--text); border-color: rgba(232, 200, 112, 0.5); }
+.shop-tab.active {
+  color: var(--gold);
+  background: rgba(110, 84, 30, 0.35);
+  border-color: var(--gold);
+}
+
+#shop-items {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow-y: auto;
+  max-height: 46vh;
+  padding-right: 4px;
+}
+#shop-items::-webkit-scrollbar { width: 6px; }
+#shop-items::-webkit-scrollbar-thumb { background: rgba(232, 200, 112, 0.35); border-radius: 3px; }
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  padding: 9px 12px;
+  text-align: left;
+}
+.shop-icon { font-size: 26px; width: 34px; text-align: center; }
+.skin-swatch {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+.shop-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.shop-info b { font-size: 14.5px; }
+.shop-info b em { font-style: normal; color: var(--gold); font-size: 12px; }
+.shop-info small { color: var(--text-dim); font-size: 12px; }
+.shop-info .stats { color: #8aa8b8; }
+.shop-btn {
+  min-width: 120px;
+  padding: 8px 14px;
+  font-size: 13px;
+  text-align: center;
+}
 .cf-upgrade b { color: var(--gold); }
 .cf-upgrade .cost { float: right; color: var(--text-dim); font-size: 13px; }
 .cf-upgrade.cant .cost { color: #e06b5d; }

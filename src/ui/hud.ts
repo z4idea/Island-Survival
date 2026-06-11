@@ -117,6 +117,10 @@ export function setWeatherDim(opacity: number): void {
   $('weather-overlay').style.opacity = String(opacity);
 }
 
+export function setCaveOverlay(on: boolean): void {
+  $('cave-overlay').classList.toggle('hidden', !on);
+}
+
 export function setBossBar(frac: number | null): void {
   const box = $('boss-bar-box');
   if (frac === null) {

@@ -18,7 +18,7 @@ import { Player } from './entities/player';
 import { Animal } from './entities/animals';
 import { Drops } from './entities/drops';
 import { Projectiles } from './entities/projectiles';
-import { tileJitter } from './utils/noise';
+import { mulberry32, tileJitter } from './utils/noise';
 import * as hud from './ui/hud';
 
 // 碰撞分组定义见 defs.ts GROUPS
@@ -59,6 +59,28 @@ interface SpawnRecord {
   deadAt: number;
 }
 
+const CAVE_SIZE = 30; // 洞穴内部边长（格）
+
+interface CaveDef {
+  id: number;
+  ex: number; // 地表入口
+  ey: number;
+  ox: number; // 内部原点（地图边界之外的世界坐标）
+  oy: number;
+  cells: Uint8Array; // 1 = 可行走地面
+  exitX: number; // 内部出口（世界坐标）
+  exitY: number;
+}
+
+interface CaveChest {
+  id: number;
+  caveId: number;
+  x: number;
+  y: number;
+  opened: boolean;
+  g: Graphics;
+}
+
 export class Game {
   app!: Application;
   input = new Input();
@@ -80,6 +102,13 @@ export class Game {
   removedNodes = new Set<number>();
   explored: Uint8Array = new Uint8Array(MAP * MAP); // 战争迷雾
   private spawnRecords: SpawnRecord[] = [];
+
+  // 洞穴
+  caves: CaveDef[] = [];
+  inCave: number | null = null;
+  private caveChests: CaveChest[] = [];
+  private openedChests = new Set<number>();
+  private caveBatSpawns: { x: number; y: number }[] = [];
 
   // 天气：晴 / 雨（雨天玩家移速降低）
   private weather: 'clear' | 'rain' = 'clear';
@@ -183,8 +212,15 @@ export class Game {
       this.explored = unpackExplored(save.explored, MAP * MAP);
     }
 
+    // 洞穴（须在存档应用之后：依赖 removedNodes / openedChests）
+    if (save) this.openedChests = new Set(save.openedChests ?? []);
+    this.buildCaves();
+
     // 动物
     this.spawnRecords = this.worldData.spawns.map((s) => ({ kind: s.kind, x: s.x, y: s.y, animal: null, deadAt: -999 }));
+    for (const b of this.caveBatSpawns) {
+      this.spawnRecords.push({ kind: 'bat', x: b.x, y: b.y, animal: null, deadAt: -999 });
+    }
     this.spawnAllAnimals();
 
     // HUD
@@ -356,6 +392,241 @@ export class Game {
     }
   }
 
+  // ---------------- 洞穴 ----------------
+
+  /** 生成 3 座洞穴：地表入口（岩地）+ 地图外的内部空间（宝箱/水晶/蝙蝠） */
+  private buildCaves(): void {
+    const w = this.worldData;
+    const crng = mulberry32(this.seed ^ 0xcafe17); // 独立随机流，不影响世界生成确定性
+    // 入口候选：优先岩地，不足时退而求其次用岛屿中心附近的山脚（草地/森林）
+    const collect = (pred: (t: Tile, x: number, y: number) => boolean): { x: number; y: number }[] => {
+      const out: { x: number; y: number }[] = [];
+      for (let y = 8; y < MAP - 8; y += 2) {
+        for (let x = 8; x < MAP - 8; x += 2) {
+          const t = w.tiles[y * MAP + x] as Tile;
+          if (!pred(t, x, y)) continue;
+          if (Math.hypot(x - w.bossPos.x, y - w.bossPos.y) < 9) continue; // 只避开决斗场本体
+          if (w.campfires.some((f) => Math.hypot(f.x - x, f.y - y) < 5)) continue;
+          out.push({ x: x + 0.5, y: y + 0.5 });
+        }
+      }
+      return out;
+    };
+    // 岩地 + 各岛中心附近的山脚（草地/森林），保证不同岛屿都可能有洞穴
+    const candidates = collect((t) => t === Tile.Rock).concat(
+      collect(
+        (t, x, y) =>
+          (t === Tile.Grass || t === Tile.Forest) &&
+          w.isles.some((isle) => Math.hypot(x - isle.x, y - isle.y) < isle.r * 0.45),
+      ),
+    );
+    const picked: { x: number; y: number }[] = [];
+    for (let attempt = 0; attempt < 800 && picked.length < 3 && candidates.length > 0; attempt++) {
+      const c = candidates[Math.floor(crng() * candidates.length)];
+      if (picked.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > 30)) picked.push(c);
+    }
+
+    picked.forEach((pos, i) => {
+      const size = CAVE_SIZE;
+      const cells = new Uint8Array(size * size);
+      // 醉汉游走雕刻洞窟
+      let cx = 15;
+      let cy = 25;
+      const carve = (x: number, y: number) => {
+        if (x >= 2 && y >= 2 && x < size - 2 && y < size - 2) cells[y * size + x] = 1;
+      };
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) carve(15 + dx, 25 + dy);
+      let carved = 9;
+      while (carved < 330) {
+        const r = crng();
+        if (r < 0.34) cy--; // 向上偏置，洞窟向深处延伸
+        else if (r < 0.52) cy++;
+        else if (r < 0.76) cx--;
+        else cx++;
+        cx = Math.max(3, Math.min(size - 4, cx));
+        cy = Math.max(3, Math.min(size - 4, cy));
+        if (!cells[cy * size + cx]) carved++;
+        carve(cx, cy);
+        if (crng() < 0.4) {
+          const nx = cx + (crng() < 0.5 ? 1 : -1);
+          if (!cells[cy * size + nx]) carved++;
+          carve(nx, cy);
+        }
+      }
+
+      const ox = 20 + i * 70;
+      const oy = MAP + 16;
+      const cave: CaveDef = {
+        id: i, ex: pos.x, ey: pos.y, ox, oy, cells,
+        exitX: ox + 15.5, exitY: oy + 25.5,
+      };
+      this.caves.push(cave);
+      this.buildCaveScene(cave, crng);
+
+      // 地表入口外观
+      const e = new Container();
+      const eg = new Graphics();
+      eg.ellipse(0, 6, 17, 7).fill({ color: 0x000000, alpha: 0.3 });
+      eg.ellipse(0, -3, 17, 13).fill(0x6e6e66); // 石丘
+      eg.ellipse(0, -3, 17, 13).stroke({ width: 2, color: 0x55554e });
+      eg.circle(-13, -8, 4.5).fill(0x7a7a72);
+      eg.circle(13, -7, 4).fill(0x7a7a72);
+      eg.ellipse(0, 1, 9, 7.5).fill(0x0d0a08); // 黑暗洞口
+      eg.ellipse(0, -2, 7, 5).fill(0x080605);
+      e.addChild(eg);
+      e.position.set(cave.ex * SCALE, cave.ey * SCALE);
+      e.zIndex = cave.ey;
+      this.objects.addChild(e);
+    });
+  }
+
+  /** 洞穴内部：地面/岩壁/碰撞体/出口光柱/宝箱/水晶/蝙蝠 */
+  private buildCaveScene(cave: CaveDef, crng: () => number): void {
+    const size = CAVE_SIZE;
+    const g = new Graphics();
+    // 大幅外扩的黑色背景板，保证洞内任何视角都看不到外面的海
+    g.rect(-30 * SCALE, -30 * SCALE, (size + 60) * SCALE, (size + 60) * SCALE).fill(0x120e0b);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (cells(x, y)) {
+          const j = tileJitter(x + cave.id * 97, y, this.seed ^ 0xca7e);
+          const base = 0x39322c;
+          const c = j < 0.33 ? 0x342e28 : j < 0.66 ? base : 0x3e3630;
+          g.rect(x * SCALE, y * SCALE, SCALE, SCALE).fill(c);
+          if (j > 0.9) g.circle(x * SCALE + 8 + j * 14, y * SCALE + 10, 2).fill(0x2a2520);
+        } else if (nearFloor(x, y)) {
+          // 岩壁
+          g.rect(x * SCALE, y * SCALE, SCALE, SCALE).fill(0x221d19);
+          g.rect(x * SCALE, y * SCALE, SCALE, 6).fill(0x2c2620);
+        }
+      }
+    }
+    g.position.set(cave.ox * SCALE, cave.oy * SCALE);
+    this.renderer.container.addChild(g);
+
+    function cells(x: number, y: number): boolean {
+      return x >= 0 && y >= 0 && x < size && y < size && cave.cells[y * size + x] === 1;
+    }
+    function nearFloor(x: number, y: number): boolean {
+      return cells(x + 1, y) || cells(x - 1, y) || cells(x, y + 1) || cells(x, y - 1) ||
+        cells(x + 1, y + 1) || cells(x - 1, y - 1) || cells(x + 1, y - 1) || cells(x - 1, y + 1);
+    }
+
+    // 岩壁碰撞体
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (!cells(x, y) && (cells(x + 1, y) || cells(x - 1, y) || cells(x, y + 1) || cells(x, y - 1))) {
+          this.physWorld.createCollider(
+            RAPIER.ColliderDesc.cuboid(0.5, 0.5)
+              .setTranslation(cave.ox + x + 0.5, cave.oy + y + 0.5)
+              .setCollisionGroups(GROUPS.STATIC),
+          );
+        }
+      }
+    }
+
+    // 出口光柱
+    const exitG = new Graphics();
+    exitG.poly([-14, -46, 14, -46, 22, 6, -22, 6]).fill({ color: 0xfff2c8, alpha: 0.13 });
+    exitG.ellipse(0, 4, 20, 8).fill({ color: 0xfff2c8, alpha: 0.22 });
+    exitG.position.set(cave.exitX * SCALE, cave.exitY * SCALE);
+    exitG.zIndex = cave.exitY - 5;
+    this.objects.addChild(exitG);
+
+    // 收集远离入口的地面格
+    const farCells: { x: number; y: number; d: number }[] = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (!cells(x, y)) continue;
+        const d = Math.hypot(x - 15, y - 25);
+        farCells.push({ x, y, d });
+      }
+    }
+    farCells.sort((a, b) => b.d - a.d);
+
+    const used: { x: number; y: number }[] = [];
+    const pick = (minD: number, fromTop: number): { x: number; y: number } | null => {
+      for (let t = 0; t < 80; t++) {
+        const c = farCells[Math.floor(crng() * Math.min(farCells.length, fromTop))];
+        if (c.d < minD) continue;
+        if (used.every((u) => Math.hypot(u.x - c.x, u.y - c.y) > 4)) {
+          used.push(c);
+          return c;
+        }
+      }
+      return null;
+    };
+
+    // 宝箱 ×3（随机三种货币）
+    for (let n = 0; n < 3; n++) {
+      const c = pick(n === 0 ? 12 : 7, n === 0 ? 25 : 120);
+      if (!c) continue;
+      const id = cave.id * 100 + n;
+      const chest: CaveChest = {
+        id, caveId: cave.id,
+        x: cave.ox + c.x + 0.5, y: cave.oy + c.y + 0.5,
+        opened: this.openedChests.has(id),
+        g: new Graphics(),
+      };
+      this.drawChest(chest.g, chest.opened);
+      chest.g.position.set(chest.x * SCALE, chest.y * SCALE);
+      chest.g.zIndex = chest.y;
+      this.objects.addChild(chest.g);
+      this.caveChests.push(chest);
+    }
+
+    // 水晶矿脉 ×2（敲碎掉钻石）
+    for (let n = 0; n < 2; n++) {
+      const c = pick(6, 150);
+      if (!c) continue;
+      const id = 1_000_000 + cave.id * 100 + n;
+      if (this.removedNodes.has(id)) continue;
+      const nx = cave.ox + c.x + 0.5;
+      const ny = cave.oy + c.y + 0.5;
+      const root = new Container();
+      const cg = new Graphics();
+      cg.circle(0, -4, 16).fill({ color: 0x6ee0ff, alpha: 0.1 }); // 微光
+      cg.poly([-9, 4, -12, -8, -5, -14, -3, 4]).fill(0x7ad8e8);
+      cg.poly([-2, 4, 0, -18, 7, -10, 6, 4]).fill(0x9a8af0);
+      cg.poly([5, 4, 11, -7, 14, 0, 12, 4]).fill(0x6ec6e0);
+      cg.ellipse(0, 5, 13, 4).fill({ color: 0x000000, alpha: 0.3 });
+      root.addChild(cg);
+      root.position.set(nx * SCALE, ny * SCALE);
+      root.zIndex = ny;
+      this.objects.addChild(root);
+      const collider = this.physWorld.createCollider(
+        RAPIER.ColliderDesc.ball(0.35).setTranslation(nx, ny).setCollisionGroups(GROUPS.STATIC),
+      );
+      this.nodes.push({
+        id, kind: 'crystal', x: nx, y: ny, hp: 4, alive: true,
+        berries: false, regrowT: 0, wobbleT: 0, root, berriesG: null, collider,
+      });
+    }
+
+    // 蝙蝠 ×4
+    for (let n = 0; n < 4; n++) {
+      const c = pick(5, 200);
+      if (c) this.caveBatSpawns.push({ x: cave.ox + c.x + 0.5, y: cave.oy + c.y + 0.5 });
+    }
+  }
+
+  private drawChest(g: Graphics, opened: boolean): void {
+    g.clear();
+    g.ellipse(0, 7, 14, 5).fill({ color: 0x000000, alpha: 0.3 });
+    if (!opened) {
+      g.circle(0, -2, 18).fill({ color: 0xffd24a, alpha: 0.08 }); // 微光
+      g.roundRect(-12, -10, 24, 18, 3).fill(0x8a5a2a);
+      g.roundRect(-12, -10, 24, 7, 3).fill(0xa06a34); // 箱盖
+      g.rect(-12, -3.5, 24, 2.5).fill(0xd8b050); // 金箍
+      g.rect(-2.5, -5, 5, 7).fill(0xd8b050); // 锁扣
+      g.circle(0, -1, 1.6).fill(0x6a4a1a);
+    } else {
+      g.roundRect(-12, -8, 24, 16, 3).fill(0x6a4520);
+      g.roundRect(-13, -16, 26, 9, 3).fill(0x8a5a2a); // 掀开的盖子
+      g.rect(-10, -6, 20, 11).fill(0x241a10); // 空箱内部
+    }
+  }
+
   private spawnAllAnimals(): void {
     for (let i = 0; i < this.spawnRecords.length; i++) {
       const r = this.spawnRecords[i];
@@ -504,6 +775,29 @@ export class Game {
       return;
     }
     const p = this.player;
+    // 洞穴内：出口 / 宝箱
+    if (this.inCave !== null) {
+      const cave = this.caves[this.inCave];
+      const nearExit = Math.hypot(cave.exitX - p.x, cave.exitY - p.y) < 1.7;
+      let nearChest: CaveChest | null = null;
+      if (!nearExit) {
+        for (const ch of this.caveChests) {
+          if (!ch.opened && ch.caveId === cave.id && Math.hypot(ch.x - p.x, ch.y - p.y) < 1.5) {
+            nearChest = ch;
+            break;
+          }
+        }
+      }
+      if (nearExit) hud.showPrompt('<kbd>E</kbd> 离开洞穴');
+      else if (nearChest) hud.showPrompt('<kbd>E</kbd> 开启宝箱');
+      else hud.showPrompt(null);
+      if (this.input.wasPressed('KeyE')) {
+        if (nearExit) this.exitCave();
+        else if (nearChest) this.openChest(nearChest);
+      }
+      return;
+    }
+
     let nearCf: Campfire | null = null;
     for (const cf of this.campfires) {
       if (Math.hypot(cf.x - p.x, cf.y - p.y) < 1.8) {
@@ -511,8 +805,17 @@ export class Game {
         break;
       }
     }
-    let nearBush: WNode | null = null;
+    let nearCave: CaveDef | null = null;
     if (!nearCf) {
+      for (const c of this.caves) {
+        if (Math.hypot(c.ex - p.x, c.ey - p.y) < 1.7) {
+          nearCave = c;
+          break;
+        }
+      }
+    }
+    let nearBush: WNode | null = null;
+    if (!nearCf && !nearCave) {
       for (const n of this.nodes) {
         if (n.alive && n.kind === 'bush' && n.berries && Math.hypot(n.x - p.x, n.y - p.y) < 1.4) {
           nearBush = n;
@@ -523,6 +826,8 @@ export class Game {
 
     if (nearCf) {
       hud.showPrompt('<kbd>E</kbd> 篝火 — 休息 · 保存 · 强化');
+    } else if (nearCave) {
+      hud.showPrompt('<kbd>E</kbd> 进入洞穴');
     } else if (nearBush) {
       hud.showPrompt('<kbd>E</kbd> 采摘浆果');
     } else {
@@ -537,10 +842,53 @@ export class Game {
         hud.updateCampfireMenu(this.player);
         hud.showScreen('campfire');
         sfx.ui();
+      } else if (nearCave) {
+        this.enterCave(nearCave.id);
       } else if (nearBush) {
         this.harvestBush(nearBush);
       }
     }
+  }
+
+  enterCave(id: number): void {
+    const cave = this.caves[id];
+    if (!cave) return;
+    this.inCave = id;
+    this.player.teleport(cave.exitX, cave.exitY - 0.6);
+    this.camX = this.player.x;
+    this.camY = this.player.y;
+    hud.setCaveOverlay(true);
+    hud.toast('🕳️ 你走进幽暗的洞穴…');
+    sfx.cave();
+    this.addShake(0.15);
+  }
+
+  exitCave(): void {
+    if (this.inCave === null) return;
+    const cave = this.caves[this.inCave];
+    this.inCave = null;
+    this.player.teleport(cave.ex, cave.ey + 1.2);
+    this.camX = this.player.x;
+    this.camY = this.player.y;
+    hud.setCaveOverlay(false);
+    sfx.cave();
+  }
+
+  private openChest(ch: CaveChest): void {
+    ch.opened = true;
+    this.openedChests.add(ch.id);
+    this.drawChest(ch.g, true);
+    // 随机三种货币
+    const silver = 10 + Math.floor(Math.random() * 15);
+    const gold = 3 + Math.floor(Math.random() * 7);
+    const diamond = Math.random() < 0.65 ? 1 + Math.floor(Math.random() * 3) : 0;
+    this.drops.spawn('silver', ch.x, ch.y - 0.3, silver);
+    this.drops.spawn('gold', ch.x, ch.y - 0.3, gold);
+    if (diamond > 0) this.drops.spawn('diamond', ch.x, ch.y - 0.3, diamond);
+    this.floats.show(ch.x, ch.y - 1, '宝藏!', 0xffd24a, 18);
+    this.particles.burst(ch.x, ch.y - 0.4, { color: 0xffd24a, count: 16, speed: 3, life: 0.7, size: 3 });
+    sfx.chest();
+    this.addShake(0.12);
   }
 
   private updateCamera(dt: number): void {
@@ -592,11 +940,13 @@ export class Game {
     const target = this.weather === 'rain' ? 1 : 0;
     const delta = target - this.rainIntensity;
     this.rainIntensity += Math.sign(delta) * Math.min(Math.abs(delta), dt * 0.35);
-    hud.setWeatherDim(this.rainIntensity * 0.24);
-    sfx.setRain(this.rainIntensity);
+    // 洞穴内：听得见闷闷的雨声，但看不到雨
+    const inCave = this.inCave !== null;
+    hud.setWeatherDim(inCave ? 0 : this.rainIntensity * 0.24);
+    sfx.setRain(this.rainIntensity * (inCave ? 0.35 : 1));
 
     // 雨幕粒子（屏幕空间）
-    if (this.rainIntensity > 0.02) {
+    if (this.rainIntensity > 0.02 && !inCave) {
       if (this.rainDrops.length === 0) {
         for (let i = 0; i < 130; i++) {
           const g = new Graphics();
@@ -645,8 +995,11 @@ export class Game {
     this.minimapT -= dt;
     if (this.minimapT <= 0) {
       this.minimapT = 0.35;
-      this.revealAround(this.player.x, this.player.y);
-      hud.drawMinimap(this.worldData, this.player.x, this.player.y, !this.bossDefeated);
+      // 洞穴内不揭迷雾，小地图玩家点固定在洞口
+      const mx = this.inCave !== null ? this.caves[this.inCave].ex : this.player.x;
+      const my = this.inCave !== null ? this.caves[this.inCave].ey : this.player.y;
+      if (this.inCave === null) this.revealAround(this.player.x, this.player.y);
+      hud.drawMinimap(this.worldData, mx, my, !this.bossDefeated);
     }
 
     // Boss 血条
@@ -749,6 +1102,24 @@ export class Game {
       sfx.hit();
       n.hp--;
       if (n.hp <= 0) this.destroyNode(n, 'stone', 2 + bonus);
+    } else if (n.kind === 'crystal') {
+      // 水晶矿脉：敲击出石块，有几率掉钻石；敲碎必出钻石
+      this.drops.spawn('stone', n.x, n.y, 1);
+      if (Math.random() < 0.45) this.drops.spawn('diamond', n.x, n.y - 0.2, 1);
+      this.particles.burst(n.x, n.y - 0.4, { color: 0x7ad8e8, count: 7, speed: 2.5, life: 0.5, size: 2.5 });
+      sfx.hit();
+      n.hp--;
+      if (n.hp <= 0) {
+        n.alive = false;
+        this.removedNodes.add(n.id);
+        this.drops.spawn('diamond', n.x, n.y, 1 + (Math.random() < 0.4 ? 1 : 0));
+        this.particles.burst(n.x, n.y - 0.4, { color: 0x9a8af0, count: 14, speed: 3.2, life: 0.65, size: 3.5 });
+        this.addShake(0.15);
+        if (n.collider) {
+          this.physWorld.removeCollider(n.collider, true);
+          n.collider = null;
+        }
+      }
     } else if (n.kind === 'bush') {
       this.harvestBush(n);
     }
@@ -836,6 +1207,8 @@ export class Game {
   }
 
   respawn(): void {
+    this.inCave = null;
+    hud.setCaveOverlay(false);
     const cf = this.worldData.campfires[this.campfireId] ?? this.worldData.campfires[0];
     this.player.teleport(cf.x + 1.2, cf.y + 1.2);
     this.player.hp = this.player.maxHp;
@@ -1030,6 +1403,7 @@ export class Game {
         gear: [...p.gear],
       },
       explored: packExplored(this.explored),
+      openedChests: [...this.openedChests],
       playTime: this.playTime,
     };
     writeSave(data);

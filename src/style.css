@@ -34,6 +34,17 @@ html, body {
   z-index: 5;
   transition: opacity 1.5s linear;
 }
+#cave-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 9%,
+    rgba(5, 3, 10, 0.55) 24%,
+    rgba(5, 3, 10, 0.95) 46%
+  );
+}
 #weather-overlay {
   position: absolute; inset: 0;
   pointer-events: none;

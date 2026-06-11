@@ -256,7 +256,8 @@ export class Player {
 
     // 速度
     // 水面状态：拥有小木舟则自动乘船（乘船可穿越深水屏障）
-    const tileHere = game.worldData.tile(this.x, this.y);
+    // 洞穴内部在地图坐标之外（tile 会返回深水），强制视为岩地
+    const tileHere = game.inCave !== null ? Tile.Rock : game.worldData.tile(this.x, this.y);
     const onWater = tileHere <= Tile.Water;
     const sailingNow = onWater && this.gear.has('boat');
     if (sailingNow !== this.sailing) {
@@ -273,7 +274,7 @@ export class Player {
       vx = this.dashDx * PLAYER.dashSpeed;
       vy = this.dashDy * PLAYER.dashSpeed;
     } else {
-      const rainMul = 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%
+      const rainMul = game.inCave !== null ? 1 : 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%（洞内不受雨影响）
       const sp =
         (this.sailing
           ? 7.0

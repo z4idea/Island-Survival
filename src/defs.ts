@@ -79,6 +79,7 @@ export const COIN_TABLE: Record<AnimalKind, { gold: number; diamond: number }> =
   fish: { gold: 0.03, diamond: 0.003 },
   turtle: { gold: 0.1, diamond: 0.015 },
   shark: { gold: 0.22, diamond: 0.05 },
+  bat: { gold: 0.08, diamond: 0.02 },
 };
 
 // ---------- 道具（商店） ----------
@@ -188,7 +189,7 @@ export const TALENT_BY_ID: Record<string, TalentDef> = Object.fromEntries(TALENT
 // ---------- 动物 ----------
 export type AnimalKind =
   | 'crab' | 'boar' | 'wolf' | 'deer' | 'bear' | 'snake' | 'goat' | 'gull'
-  | 'tiger' | 'fish' | 'turtle' | 'shark';
+  | 'tiger' | 'fish' | 'turtle' | 'shark' | 'bat';
 
 export interface AnimalDef {
   kind: AnimalKind;
@@ -267,6 +268,10 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
   gull: {
     kind: 'gull', name: '海鸥', hp: 14, dmg: 0, speed: 5.2, aggroR: 0, atkR: 0,
     atkCd: 0, radius: 0.28, flee: true, flying: true, drops: { meat: 1 }, color: 0xf0f0ea,
+  },
+  bat: {
+    kind: 'bat', name: '洞穴蝙蝠', hp: 18, dmg: 7, speed: 4.8, aggroR: 7, atkR: 0.9,
+    atkCd: 1.0, radius: 0.3, drops: { hide: 1 }, color: 0x6a5a7a,
   },
 };
 

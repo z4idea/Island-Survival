@@ -91,6 +91,17 @@ export class Sfx {
     }
   }
 
+  cave(): void {
+    this.tone(140, 0.5, 'sine', 0.22, 55);
+    this.noise(0.4, 0.12, 400, 120);
+  }
+
+  chest(): void {
+    this.tone(392, 0.12, 'triangle', 0.2);
+    setTimeout(() => this.tone(523, 0.12, 'triangle', 0.2), 100);
+    setTimeout(() => this.tone(659, 0.25, 'triangle', 0.24), 200);
+  }
+
   swing(): void {
     this.noise(0.12, 0.25, 1800, 500);
   }

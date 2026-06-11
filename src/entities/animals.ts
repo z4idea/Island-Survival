@@ -210,6 +210,16 @@ export class Animal {
         g.moveTo(12, 3).quadraticCurveTo(16, 5, 19, 3).stroke({ width: 1.5, color: 0x4a5a66 }); // 嘴
         break;
       }
+      case 'bat': {
+        g.ellipse(0, 0, 6, 8).fill(c); // 身体
+        g.poly([-3, -2, -16, -8, -14, 2, -4, 3]).fill(0x4a3e58); // 左翼
+        g.poly([3, -2, 16, -8, 14, 2, 4, 3]).fill(0x4a3e58);
+        g.poly([-3, -7, -1, -11, 0, -7]).fill(c); // 耳朵
+        g.poly([3, -7, 1, -11, 0, -7]).fill(c);
+        g.circle(-2, -5, 1.2).fill(0xff5040); // 红眼
+        g.circle(2, -5, 1.2).fill(0xff5040);
+        break;
+      }
       case 'bear': {
         g.ellipse(0, 0, 30, 22).fill(c);
         g.ellipse(0, 0, 30, 22).stroke({ width: 3, color: 0x3a2a1c });

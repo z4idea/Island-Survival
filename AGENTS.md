@@ -30,7 +30,7 @@ UI 分两层：游戏画面是 Pixi canvas（`#app`）；HUD/菜单/标题画面
 | 模块 | 职责 | 关键导出 | 下游依赖 |
 | --- | --- | --- | --- |
 | [src/main.ts](src/main.ts) | 入口：标题画面、按钮接线、商店事件委托（`#shop-menu` 上的 `data-tab`/`data-act`）、`window.__game` 调试钩子 | — | game, save, hud, audio |
-| [src/game.ts](src/game.ts) | **中枢**：Pixi/Rapier 初始化、主循环、战斗/采集结算、篝火与存档、商店动作（`shopAction`）、战争迷雾（`explored`+`revealAround`）、昼夜、镜头、动物重生 | `Game`, `WNode` | 几乎全部模块 |
+| [src/game.ts](src/game.ts) | **中枢**：Pixi/Rapier 初始化、主循环、战斗/采集结算、篝火与存档、商店动作（`shopAction`）、战争迷雾（`explored`+`revealAround`）、**洞穴**（`buildCaves`/`enterCave`/`exitCave`/宝箱/水晶，内部空间放在地图边界外的世界坐标，独立 rng `seed^0xcafe17` 不扰动世界生成确定性；玩家在洞内时 `inCave` 非空，player.update 据此把脚下强制视为岩地、免雨免溺水）、昼夜、天气、镜头、动物重生 | `Game`, `WNode` | 几乎全部模块 |
 | [src/defs.ts](src/defs.ts) | 数据定义（所有数值调参入口）：`SCALE/MAP(320)/Tile/GROUPS`、武器 `WEAPONS`(+price)、动物 `ANIMALS`、货币 `CURRENCY`/掉率 `COIN_TABLE`、升级 `UPGRADES`/`WEAPON_UPG`、天赋 `TALENTS`、皮肤 `SKINS`、道具 `GEAR`、玩家 `PLAYER` | 同左 | 无 |
 | [src/world/worldgen.ts](src/world/worldgen.ts) | 程序化**群岛**（320×320）：随机 1 主岛 + 4~6 小岛、Boss 随机落在某岛山顶、陆地连通域标记（剔除碎礁）、篝火（10 个）随机起点 + 最远点采样、陆地/海洋动物分布 | `generateWorld`, `WorldData`, `Isle` | noise, defs |
 | [src/world/worldrender.ts](src/world/worldrender.ts) | 地形渲染：16×16 格区块 Graphics、海岸浪花动画、视野裁剪 | `WorldRenderer` | defs, noise |
@@ -63,7 +63,7 @@ UI 分两层：游戏画面是 Pixi canvas（`#app`）；HUD/菜单/标题画面
 
 ### 存档链
 
-唯一写入点：篝火菜单休息 `Game.campfireAction('rest')` → `saveNow()` → `writeSave`（[src/core/save.ts](src/core/save.ts)，key `island-survival-save-v1`，**version 4**；地图尺寸/世界生成变更时递增版本）。Boss 击杀也会 `saveNow`。字段含货币/武器库存/武器等级/皮肤/天赋/道具 gear/迷雾 explored（bit 打包 base64，`packExplored`/`unpackExplored`）。读档：`main.ts` `loadSave()`（版本 ≠4 直接判废返回 null）→ 传入 `Game.create`，用相同 `seed` 重生成世界后按 `removedNodes` id 列表跳过已采集节点。死亡 → `onPlayerDeath` → 死亡画面 → `Game.respawn()` 回到 `campfireId` 篝火、清中毒并 `regenerateAnimals()`。
+唯一写入点：篝火菜单休息 `Game.campfireAction('rest')` → `saveNow()` → `writeSave`（[src/core/save.ts](src/core/save.ts)，key `island-survival-save-v1`，**version 4**；地图尺寸/世界生成变更时递增版本）。Boss 击杀也会 `saveNow`。字段含货币/武器库存/武器等级/皮肤/天赋/道具 gear/迷雾 explored（bit 打包 base64，`packExplored`/`unpackExplored`）/已开宝箱 `openedChests`（可选字段，旧 v4 档缺省为空）；洞穴水晶用 `removedNodes`（id ≥ 1_000_000）。读档：`main.ts` `loadSave()`（版本 ≠4 直接判废返回 null）→ 传入 `Game.create`，用相同 `seed` 重生成世界后按 `removedNodes` id 列表跳过已采集节点。死亡 → `onPlayerDeath` → 死亡画面 → `Game.respawn()` 回到 `campfireId` 篝火、清中毒并 `regenerateAnimals()`。
 
 ## Important Paths
 

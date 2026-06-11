@@ -23,7 +23,7 @@
 
 UI 分两层：游戏画面是 Pixi canvas（`#app`）；HUD/菜单/标题画面全部是 **HTML/CSS DOM**（[index.html](index.html) + [src/style.css](src/style.css)），由 [src/ui/hud.ts](src/ui/hud.ts) 以 `getElementById` 操作。新增 UI 时遵守这个分界：世界内的视觉进 Pixi，叠加层 UI 进 DOM。
 
-物理用法刻意保持最小 API 面（兼容性考虑）：仅 `World`、`RigidBodyDesc`、`ColliderDesc`、`setLinvel`、`translation`、`step`。攻击判定/拾取/箭矢命中均为手写距离+角度计算（在 `Game.meleeStrike` / `Projectiles.update` / `Drops.update`），**不要**改成 Rapier 查询管线。碰撞分组常量 `G_STATIC / G_PLAYER / G_ANIMAL` 定义在 [src/game.ts](src/game.ts) 顶部（`(membership<<16)|filter` 格式）。
+物理用法刻意保持最小 API 面（兼容性考虑）：仅 `World`、`RigidBodyDesc`、`ColliderDesc`、`setLinvel`、`translation`、`setCollisionGroups`、`step`。攻击判定/拾取/箭矢命中均为手写距离+角度计算（在 `Game.meleeStrike` / `Projectiles.update` / `Drops.update`），**不要**改成 Rapier 查询管线。碰撞分组统一定义在 [src/defs.ts](src/defs.ts) `GROUPS`（`(membership<<16)|filter`）：深水屏障是独立的 `WATER` 组，玩家乘船时切到 `PLAYER_BOAT`（filter 不含 WATER）实现渡海；海洋动物 `MARINE` 组只与玩家碰撞，靠 AI 的 `isWater` 检查留在水里。战争迷雾：`Game.explored`（Uint8Array）+ [src/ui/hud.ts](src/ui/hud.ts) 迷雾 canvas，存档时按位打包（save.ts `packExplored`）。
 
 ## Internal Modules
 
@@ -32,14 +32,14 @@ UI 分两层：游戏画面是 Pixi canvas（`#app`）；HUD/菜单/标题画面
 | [src/main.ts](src/main.ts) | 入口：标题画面、按钮接线、`window.__game` 调试钩子 | — | game, save, hud, audio |
 | [src/game.ts](src/game.ts) | **中枢**：Pixi/Rapier 初始化、主循环、战斗/采集结算、篝火与存档、昼夜、镜头、动物重生 | `Game`, `WNode` | 几乎全部模块 |
 | [src/defs.ts](src/defs.ts) | 数据定义：`SCALE/MAP/Tile`、武器 `WEAPONS`、动物 `ANIMALS`、升级 `UPGRADES`、玩家 `PLAYER` | 同左 | 无 |
-| [src/world/worldgen.ts](src/world/worldgen.ts) | 程序化岛屿：噪声高度场→生物群系、主岛洪泛填充、篝火最远点采样、资源/动物分布 | `generateWorld`, `WorldData` | noise, defs |
+| [src/world/worldgen.ts](src/world/worldgen.ts) | 程序化**群岛**（240×240）：随机 1 主岛 + 3~4 小岛、Boss 随机落在某岛山顶、陆地连通域标记（剔除碎礁）、篝火随机起点 + 最远点采样、陆地/海洋动物分布 | `generateWorld`, `WorldData`, `Isle` | noise, defs |
 | [src/world/worldrender.ts](src/world/worldrender.ts) | 地形渲染：16×16 格区块 Graphics、海岸浪花动画、视野裁剪 | `WorldRenderer` | defs, noise |
 | [src/entities/player.ts](src/entities/player.ts) | 玩家：移动/翻滚(无敌帧)/三武器/进食/受击 | `Player` | defs, hud, audio |
 | [src/entities/animals.ts](src/entities/animals.ts) | 动物 AI 状态机（idle/wander/chase/windup/charge/flee/dying），行为差异全部由 `AnimalDef` 可选标志驱动：`boss`/`charge`(+`chargeSpeed/Dur/Min/Max`)/`poison`(蛇,挂玩家 `applyPoison`)/`retaliate`(山羊,中立受击反击)/`flying`(海鸥,碰撞组 filter=0 可越水) | `Animal` | defs, audio |
 | [src/entities/drops.ts](src/entities/drops.ts) | 掉落物（emoji Text 精灵）：散落→吸附→拾取 | `Drops` | defs |
 | [src/entities/projectiles.ts](src/entities/projectiles.ts) | 箭矢：手动飞行、命中动物/钉树 | `Projectiles` | defs |
 | [src/ui/hud.ts](src/ui/hud.ts) | 全部 DOM 操作：血条/资源/武器栏/小地图 canvas/界面切换/篝火升级菜单 | 函数集合 | defs |
-| [src/core/](src/core) | `input.ts`（键鼠，`e.code` 体系）、`audio.ts`（合成音效单例 `sfx`）、`save.ts`（localStorage，`SaveData` **v2**：货币/商店武器/武器等级/皮肤/天赋；内置 v1→v2 迁移 `migrateV1`） | — | — |
+| [src/core/](src/core) | `input.ts`（键鼠，`e.code` 体系）、`audio.ts`（合成音效单例 `sfx`）、`save.ts`（localStorage，`SaveData` **v3**：+道具 gear、迷雾 explored（bit 打包 base64）；v3 起世界生成全变，旧版本档直接判废返回 null） | — | — |
 | [src/fx.ts](src/fx.ts) | 粒子与伤害飘字对象池 | `Particles`, `FloatTexts` | defs |
 | [src/utils/noise.ts](src/utils/noise.ts) | 值噪声 FBM、`mulberry32`、`tileJitter` | — | 无 |
 

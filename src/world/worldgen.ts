@@ -1,5 +1,6 @@
 // @author: zhjj
-// 程序化孤岛生成：高度场 + 生物群系 + 资源 / 篝火 / 动物分布
+// 程序化群岛生成：多岛屿高度场 + 生物群系 + 连通域 + 资源 / 篝火 / 动物分布
+// Boss 随机出现在某座岛屿的山顶；篝火随机分布在各岛陆地上
 
 import { MAP, Tile, walkable, type AnimalKind } from '../defs';
 import { Noise2D, mulberry32 } from '../utils/noise';
@@ -25,11 +26,18 @@ export interface SpawnPoint {
   y: number;
 }
 
+export interface Isle {
+  x: number;
+  y: number;
+  r: number;
+}
+
 export class WorldData {
   tiles: Uint8Array = new Uint8Array(MAP * MAP);
   nodes: NodeData[] = [];
   campfires: CampfirePoint[] = [];
   spawns: SpawnPoint[] = [];
+  isles: Isle[] = [];
   bossPos = { x: MAP / 2, y: MAP / 2 };
   startCampfireId = 0;
 
@@ -45,6 +53,10 @@ export class WorldData {
   isWalkable(x: number, y: number): boolean {
     return walkable(this.tile(x, y));
   }
+
+  isWater(x: number, y: number): boolean {
+    return this.tile(x, y) <= Tile.Water;
+  }
 }
 
 export function generateWorld(seed: number): WorldData {
@@ -52,17 +64,49 @@ export function generateWorld(seed: number): WorldData {
   const elev = new Noise2D(seed);
   const moist = new Noise2D(seed ^ 0x5f3759df);
   const rng = mulberry32(seed ^ 0x9e3779b9);
-  const C = MAP / 2;
-  const R = MAP / 2;
+
+  // ---- 岛屿布局：1 座主岛 + 3~4 座小岛，位置随机 ----
+  const isles: Isle[] = [];
+  const main: Isle = {
+    x: MAP / 2 + (rng() - 0.5) * 50,
+    y: MAP / 2 + (rng() - 0.5) * 50,
+    r: 54 + rng() * 8,
+  };
+  isles.push(main);
+  const extraCount = 3 + Math.floor(rng() * 2);
+  for (let i = 0; i < extraCount; i++) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const cand: Isle = {
+        x: 34 + rng() * (MAP - 68),
+        y: 34 + rng() * (MAP - 68),
+        r: 20 + rng() * 16,
+      };
+      const ok = isles.every((o) => Math.hypot(o.x - cand.x, o.y - cand.y) > (o.r + cand.r) * 0.95);
+      if (ok) {
+        isles.push(cand);
+        break;
+      }
+    }
+  }
+  w.isles = isles;
+
+  // Boss 随机选一座岛（有小岛时优先小岛，需乘船远征）
+  const bossIsle = isles.length > 1 ? isles[1 + Math.floor(rng() * (isles.length - 1))] : main;
+  w.bossPos = { x: Math.round(bossIsle.x) + 0.5, y: Math.round(bossIsle.y) + 0.5 };
 
   // ---- 高度场 → 地形 ----
   for (let y = 0; y < MAP; y++) {
     for (let x = 0; x < MAP; x++) {
-      const d = Math.hypot(x - C, y - C) / R; // 0..~1.41
+      let field = 0;
+      for (const isle of isles) {
+        const d = Math.hypot(x - isle.x, y - isle.y) / isle.r;
+        field = Math.max(field, 1 - d * d);
+      }
       const e = elev.fbm(x * 0.045, y * 0.045, 4);
-      const distC = Math.hypot(x - C, y - C);
-      const peak = 0.3 * Math.exp(-((distC / 14) ** 2)); // 中央山峰
-      const v = e * 0.62 + (1 - d * d) * 0.46 - 0.3 + peak;
+      const dMain = Math.hypot(x - main.x, y - main.y);
+      const dBoss = Math.hypot(x - bossIsle.x, y - bossIsle.y);
+      const peaks = 0.22 * Math.exp(-((dMain / 12) ** 2)) + 0.3 * Math.exp(-((dBoss / 13) ** 2));
+      const v = e * 0.62 + field * 0.46 - 0.3 + peaks;
 
       let t: Tile;
       if (v < 0.03) t = Tile.DeepWater;
@@ -77,64 +121,83 @@ export function generateWorld(seed: number): WorldData {
     }
   }
 
-  // ---- Boss 决斗场：中央山顶保证为开阔岩地 ----
+  // ---- Boss 决斗场：所在岛山顶保证为开阔岩地 ----
+  const bx = Math.floor(w.bossPos.x);
+  const by = Math.floor(w.bossPos.y);
   for (let y = -7; y <= 7; y++) {
     for (let x = -7; x <= 7; x++) {
       if (Math.hypot(x, y) <= 7) {
-        w.tiles[(C + y) * MAP + (C + x)] = Tile.Rock;
+        const tx = bx + x;
+        const ty = by + y;
+        if (tx >= 0 && ty >= 0 && tx < MAP && ty < MAP) w.tiles[ty * MAP + tx] = Tile.Rock;
       }
     }
   }
-  w.bossPos = { x: C + 0.5, y: C + 0.5 };
 
-  // ---- 主岛连通域：从岛心沿陆地洪泛填充，排除离岸礁岛 ----
-  const reachable = new Uint8Array(MAP * MAP);
-  {
-    const stack: number[] = [C * MAP + C];
-    reachable[C * MAP + C] = 1;
+  // ---- 陆地连通域标记：排除噪声生成的碎礁，保留有效岛屿 ----
+  const comp = new Int32Array(MAP * MAP).fill(-1);
+  const compSizes: number[] = [];
+  for (let i = 0; i < MAP * MAP; i++) {
+    if (comp[i] >= 0 || !walkable(w.tiles[i] as Tile)) continue;
+    const id = compSizes.length;
+    let size = 0;
+    const stack = [i];
+    comp[i] = id;
     while (stack.length > 0) {
-      const i = stack.pop()!;
-      const ix = i % MAP;
-      const iy = (i / MAP) | 0;
+      const c = stack.pop()!;
+      size++;
+      const cx = c % MAP;
+      const cy = (c / MAP) | 0;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-        const nx = ix + dx;
-        const ny = iy + dy;
+        const nx = cx + dx;
+        const ny = cy + dy;
         if (nx < 1 || ny < 1 || nx >= MAP - 1 || ny >= MAP - 1) continue;
         const ni = ny * MAP + nx;
-        if (reachable[ni]) continue;
-        if (walkable(w.tiles[ni] as Tile)) {
-          reachable[ni] = 1;
+        if (comp[ni] < 0 && walkable(w.tiles[ni] as Tile)) {
+          comp[ni] = id;
           stack.push(ni);
         }
       }
     }
+    compSizes.push(size);
+  }
+  const kept = new Set<number>();
+  compSizes.forEach((s, id) => {
+    if (s >= 60) kept.add(id);
+  });
+  const reachable = (x: number, y: number): boolean => {
+    const id = comp[Math.floor(y) * MAP + Math.floor(x)];
+    return id >= 0 && kept.has(id);
+  };
+  // 出生连通域 = 主岛中心所在的连通域（主岛中心必为陆地：有山峰加成）
+  let startComp = comp[Math.floor(main.y) * MAP + Math.floor(main.x)];
+  if (startComp < 0 || !kept.has(startComp)) {
+    let best = -1;
+    compSizes.forEach((s, id) => {
+      if (kept.has(id) && (best < 0 || s > compSizes[best])) best = id;
+    });
+    startComp = best;
   }
 
-  // ---- 篝火：最远点采样，保证彼此分散（只放在主岛陆地上）----
-  const candidates: { x: number; y: number }[] = [];
+  // ---- 篝火：随机起点 + 最远点采样（仅有效岛屿陆地） ----
+  const candidates: { x: number; y: number; comp: number; sand: boolean }[] = [];
   for (let y = 10; y < MAP - 10; y += 2) {
     for (let x = 10; x < MAP - 10; x += 2) {
       const t = w.tiles[y * MAP + x] as Tile;
-      if (
-        (t === Tile.Sand || t === Tile.Grass) &&
-        reachable[y * MAP + x] &&
-        Math.hypot(x - C, y - C) > 16
-      ) {
-        candidates.push({ x: x + 0.5, y: y + 0.5 });
-      }
+      if (t !== Tile.Sand && t !== Tile.Grass) continue;
+      if (!reachable(x, y)) continue;
+      if (Math.hypot(x - w.bossPos.x, y - w.bossPos.y) < 14) continue;
+      candidates.push({ x: x + 0.5, y: y + 0.5, comp: comp[y * MAP + x], sand: t === Tile.Sand });
     }
   }
   const fires: { x: number; y: number }[] = [];
   if (candidates.length > 0) {
-    // 从最靠南的沙滩点开始（出生点）
-    let first = candidates[0];
-    for (const c of candidates) {
-      const t = w.tile(c.x, c.y);
-      const ft = w.tile(first.x, first.y);
-      if (t === Tile.Sand && (ft !== Tile.Sand || c.y > first.y)) first = c;
-    }
+    // 出生篝火：主岛上随机一处沙滩（没有沙滩就随机陆地）
+    const startPool = candidates.filter((c) => c.comp === startComp && c.sand);
+    const pool = startPool.length > 0 ? startPool : candidates.filter((c) => c.comp === startComp);
+    const first = (pool.length > 0 ? pool : candidates)[Math.floor(rng() * Math.max(1, (pool.length > 0 ? pool : candidates).length))];
     fires.push(first);
-    while (fires.length < 6) {
+    while (fires.length < 8) {
       let best = candidates[0];
       let bestD = -1;
       for (const c of candidates) {
@@ -145,7 +208,7 @@ export function generateWorld(seed: number): WorldData {
           best = c;
         }
       }
-      if (bestD < 18) break;
+      if (bestD < 22) break;
       fires.push(best);
     }
   }
@@ -182,14 +245,16 @@ export function generateWorld(seed: number): WorldData {
     }
   }
 
-  // ---- 动物分布 ----
+  // ---- 动物分布（陆地按连通域，海洋生物在浅水） ----
   const caps: Record<AnimalKind, number> = {
-    crab: 32, boar: 26, deer: 20, wolf: 28, bear: 1, snake: 18, goat: 12, gull: 14,
+    crab: 40, boar: 34, deer: 26, wolf: 36, bear: 1, snake: 24, goat: 16, gull: 20,
+    tiger: 8, fish: 24, turtle: 10, shark: 12,
   };
   const counts: Record<AnimalKind, number> = {
     crab: 0, boar: 0, deer: 0, wolf: 0, bear: 0, snake: 0, goat: 0, gull: 0,
+    tiger: 0, fish: 0, turtle: 0, shark: 0,
   };
-  const start = w.campfires[0] ?? { x: C, y: C + 40 };
+  const start = w.campfires[0] ?? { x: main.x, y: main.y };
   for (let y = 2; y < MAP - 2; y++) {
     for (let x = 2; x < MAP - 2; x++) {
       const t = w.tiles[y * MAP + x] as Tile;
@@ -202,15 +267,21 @@ export function generateWorld(seed: number): WorldData {
       else if (t === Tile.Grass && r >= 0.015 && r < 0.021) kind = 'snake';
       else if (t === Tile.Forest && r < 0.016) kind = 'wolf';
       else if (t === Tile.Forest && r >= 0.016 && r < 0.022) kind = 'snake';
+      else if (t === Tile.Forest && r >= 0.022 && r < 0.0255) kind = 'tiger';
       else if (t === Tile.Rock && r < 0.05) kind = 'goat';
-      // 岩石群系很小（多为中央山峰），山羊也栖息在山坡草地
-      else if (t === Tile.Grass && r >= 0.021 && r < 0.03 && Math.hypot(x - C, y - C) < 26) kind = 'goat';
+      // 山羊也栖息在主岛山坡草地
+      else if (t === Tile.Grass && r >= 0.021 && r < 0.03 && Math.hypot(x - main.x, y - main.y) < 30) kind = 'goat';
+      // 海洋生物：浅水区
+      else if (t === Tile.Water && r < 0.012) kind = 'fish';
+      else if (t === Tile.Water && r >= 0.012 && r < 0.017) kind = 'turtle';
+      else if (t === Tile.Water && r >= 0.017 && r < 0.023) kind = 'shark';
+
       if (!kind || counts[kind] >= caps[kind]) continue;
-      if (!reachable[y * MAP + x]) continue; // 不在离岸礁岛上刷动物
+      const def = { marine: kind === 'fish' || kind === 'turtle' || kind === 'shark' };
+      if (!def.marine && !reachable(x, y)) continue; // 陆地动物只刷在有效岛屿
       const px = x + 0.5;
       const py = y + 0.5;
       if (Math.hypot(px - start.x, py - start.y) < 10) continue; // 出生点附近安全
-      // 山羊栖息在山峰附近，放宽 Boss 排除半径（仍避开 7 格决斗场）
       if (nearCampfire(px, py, 5.5) || nearBoss(px, py, kind === 'goat' ? 8.5 : 11)) continue;
       counts[kind]++;
       w.spawns.push({ kind, x: px, y: py });

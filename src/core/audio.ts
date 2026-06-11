@@ -4,6 +4,8 @@
 export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private rainSrc: AudioBufferSourceNode | null = null;
+  private rainGain: GainNode | null = null;
   muted = false;
 
   /** 必须在用户手势后调用 */
@@ -58,6 +60,35 @@ export class Sfx {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(filter).connect(g).connect(this.master);
     src.start(t);
+  }
+
+  /** 雨声环境音：循环噪声，音量随雨强变化（0 = 停止） */
+  setRain(v: number): void {
+    if (!this.ctx || !this.master) return;
+    if (v > 0.01 && !this.rainSrc) {
+      const len = this.ctx.sampleRate * 2;
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 850;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      src.connect(filter).connect(g).connect(this.master);
+      src.start();
+      this.rainSrc = src;
+      this.rainGain = g;
+    }
+    if (this.rainGain) this.rainGain.gain.value = v * 0.1;
+    if (v <= 0.01 && this.rainSrc) {
+      this.rainSrc.stop();
+      this.rainSrc = null;
+      this.rainGain = null;
+    }
   }
 
   swing(): void {

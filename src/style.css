@@ -34,6 +34,13 @@ html, body {
   z-index: 5;
   transition: opacity 1.5s linear;
 }
+#weather-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background: #324a5e;
+  opacity: 0;
+  z-index: 5;
+}
 #vignette {
   position: absolute; inset: 0;
   pointer-events: none;

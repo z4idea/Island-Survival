@@ -273,9 +273,11 @@ export class Player {
       vx = this.dashDx * PLAYER.dashSpeed;
       vy = this.dashDy * PLAYER.dashSpeed;
     } else {
-      const sp = this.sailing
-        ? 7.0
-        : PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1);
+      const rainMul = 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%
+      const sp =
+        (this.sailing
+          ? 7.0
+          : PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1)) * rainMul;
       vx = mx * sp;
       vy = my * sp;
     }

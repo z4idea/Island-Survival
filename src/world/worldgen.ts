@@ -65,21 +65,21 @@ export function generateWorld(seed: number): WorldData {
   const moist = new Noise2D(seed ^ 0x5f3759df);
   const rng = mulberry32(seed ^ 0x9e3779b9);
 
-  // ---- 岛屿布局：1 座主岛 + 3~4 座小岛，位置随机 ----
+  // ---- 岛屿布局：1 座主岛 + 4~6 座小岛，位置随机 ----
   const isles: Isle[] = [];
   const main: Isle = {
-    x: MAP / 2 + (rng() - 0.5) * 50,
-    y: MAP / 2 + (rng() - 0.5) * 50,
-    r: 54 + rng() * 8,
+    x: MAP / 2 + (rng() - 0.5) * 70,
+    y: MAP / 2 + (rng() - 0.5) * 70,
+    r: 62 + rng() * 10,
   };
   isles.push(main);
-  const extraCount = 3 + Math.floor(rng() * 2);
+  const extraCount = 4 + Math.floor(rng() * 3);
   for (let i = 0; i < extraCount; i++) {
     for (let attempt = 0; attempt < 40; attempt++) {
       const cand: Isle = {
-        x: 34 + rng() * (MAP - 68),
-        y: 34 + rng() * (MAP - 68),
-        r: 20 + rng() * 16,
+        x: 38 + rng() * (MAP - 76),
+        y: 38 + rng() * (MAP - 76),
+        r: 22 + rng() * 18,
       };
       const ok = isles.every((o) => Math.hypot(o.x - cand.x, o.y - cand.y) > (o.r + cand.r) * 0.95);
       if (ok) {
@@ -197,7 +197,7 @@ export function generateWorld(seed: number): WorldData {
     const pool = startPool.length > 0 ? startPool : candidates.filter((c) => c.comp === startComp);
     const first = (pool.length > 0 ? pool : candidates)[Math.floor(rng() * Math.max(1, (pool.length > 0 ? pool : candidates).length))];
     fires.push(first);
-    while (fires.length < 8) {
+    while (fires.length < 10) {
       let best = candidates[0];
       let bestD = -1;
       for (const c of candidates) {
@@ -208,7 +208,7 @@ export function generateWorld(seed: number): WorldData {
           best = c;
         }
       }
-      if (bestD < 22) break;
+      if (bestD < 24) break;
       fires.push(best);
     }
   }
@@ -247,8 +247,8 @@ export function generateWorld(seed: number): WorldData {
 
   // ---- 动物分布（陆地按连通域，海洋生物在浅水） ----
   const caps: Record<AnimalKind, number> = {
-    crab: 40, boar: 34, deer: 26, wolf: 36, bear: 1, snake: 24, goat: 16, gull: 20,
-    tiger: 8, fish: 24, turtle: 10, shark: 12,
+    crab: 50, boar: 44, deer: 34, wolf: 46, bear: 1, snake: 32, goat: 20, gull: 26,
+    tiger: 12, fish: 32, turtle: 14, shark: 16,
   };
   const counts: Record<AnimalKind, number> = {
     crab: 0, boar: 0, deer: 0, wolf: 0, bear: 0, snake: 0, goat: 0, gull: 0,

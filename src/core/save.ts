@@ -41,8 +41,9 @@ export function loadSave(): SaveData | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as SaveData;
-    // v3 起世界生成方式（群岛）与地图尺寸全变，旧档的 seed/坐标/节点 id 均不兼容
-    if (data.version !== 3) return null;
+    // 世界生成方式 / 地图尺寸变更时递增版本：旧档的 seed/坐标/节点 id 均不兼容
+    // v3=240 群岛；v4=320 群岛（字段结构与 v3 相同）
+    if (data.version !== 4) return null;
     return data;
   } catch {
     return null;

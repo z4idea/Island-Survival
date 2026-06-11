@@ -113,6 +113,10 @@ export function setClock(emoji: string): void {
   $('clock').textContent = emoji;
 }
 
+export function setWeatherDim(opacity: number): void {
+  $('weather-overlay').style.opacity = String(opacity);
+}
+
 export function setBossBar(frac: number | null): void {
   const box = $('boss-bar-box');
   if (frac === null) {

@@ -2,7 +2,7 @@
 // 全局常量与数据定义：地形 / 武器 / 动物 / 资源
 
 export const SCALE = 32; // 每个世界单位对应的像素数（1 单位 = 1 格）
-export const MAP = 240; // 地图边长（格）
+export const MAP = 320; // 地图边长（格）
 export const DAY_LENGTH = 300; // 一个昼夜循环的秒数
 
 // 碰撞分组：(membership << 16) | filter
@@ -122,9 +122,9 @@ export interface WeaponDef {
 const deg = (d: number) => (Math.PI * d) / 180;
 
 export const WEAPONS: WeaponDef[] = [
-  { id: 'sword', name: '猎刀', icon: '🗡️', desc: '均衡的横扫', dmg: 12, range: 1.7, arc: deg(120), cd: 0.32, knock: 6, lunge: 1.6 },
-  { id: 'spear', name: '长矛', icon: '🔱', desc: '远距离突刺', dmg: 19, range: 2.7, arc: deg(44), cd: 0.62, knock: 9, lunge: 3.2 },
-  { id: 'bow', name: '短弓', icon: '🏹', desc: '基础远程', dmg: 14, range: 14, arc: 0, cd: 0.7, knock: 4, projectile: true },
+  { id: 'sword', name: '猎刀', icon: '🗡️', desc: '均衡的横扫', dmg: 12, range: 1.7, arc: deg(120), cd: 0.45, knock: 6, lunge: 1.6 },
+  { id: 'spear', name: '长矛', icon: '🔱', desc: '远距离突刺', dmg: 19, range: 2.7, arc: deg(44), cd: 0.8, knock: 9, lunge: 3.2 },
+  { id: 'bow', name: '短弓', icon: '🏹', desc: '基础远程', dmg: 14, range: 14, arc: 0, cd: 0.95, knock: 4, projectile: true },
   { id: 'axe', name: '战斧', icon: '🪓', desc: '沉重劈砍，伐木采石收获 +1', dmg: 26, range: 1.9, arc: deg(140), cd: 0.72, knock: 10, lunge: 1.2, chopBonus: 1, price: { silver: 40 } },
   { id: 'daggers', name: '双刃', icon: '⚔️', desc: '极快的连击', dmg: 7.5, range: 1.35, arc: deg(100), cd: 0.16, knock: 2.5, lunge: 1.0, price: { silver: 60, gold: 5 } },
   { id: 'hammer', name: '重锤', icon: '🔨', desc: '巨力一击，超强击退', dmg: 34, range: 1.85, arc: deg(110), cd: 0.95, knock: 16, lunge: 0.8, price: { gold: 25 } },
@@ -301,8 +301,8 @@ export const PLAYER = {
   hp: 100,
   stamina: 100,
   dashCost: 26,
-  dashSpeed: 14.5,
-  dashTime: 0.2,
-  dashIFrames: 0.32,
-  staminaRegen: 26,
+  dashSpeed: 12,
+  dashTime: 0.16, // 翻滚距离 ≈ 1.9 格（原 2.9）
+  dashIFrames: 0.3,
+  staminaRegen: 14, // 体力恢复放缓
 };

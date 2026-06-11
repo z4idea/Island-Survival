@@ -81,6 +81,13 @@ export class Game {
   explored: Uint8Array = new Uint8Array(MAP * MAP); // 战争迷雾
   private spawnRecords: SpawnRecord[] = [];
 
+  // 天气：晴 / 雨（雨天玩家移速降低）
+  private weather: 'clear' | 'rain' = 'clear';
+  rainIntensity = 0; // 0..1 渐变
+  private weatherT = 50 + Math.random() * 70; // 距下次天气变化的秒数
+  private rainC = new Container();
+  private rainDrops: { g: Graphics; spd: number }[] = [];
+
   private camX = 0;
   private camY = 0;
   private shakeAmp = 0;
@@ -136,6 +143,8 @@ export class Game {
     fxC.addChild(this.floats.container);
     this.worldC.addChild(fxC);
     this.app.stage.addChild(this.worldC);
+    this.rainC.visible = false;
+    this.app.stage.addChild(this.rainC); // 屏幕空间雨幕，盖在世界之上
 
     this.buildWaterColliders();
     this.buildNodes(save ? new Set(save.removedNodes) : new Set());
@@ -438,6 +447,7 @@ export class Game {
     this.updateInteraction();
     this.updateCamera(dt);
     this.updateDayNight(dtRaw);
+    this.updateWeather(dtRaw);
     this.updateRespawns(dtRaw);
     this.updateHud(dtRaw);
     this.renderer.animate(this.time);
@@ -561,7 +571,56 @@ export class Game {
     const nightness = Math.max(0, Math.min(1, (0.15 - sun) / 1.3));
     hud.setNight(nightness * 0.52);
     this.isNight = sun < -0.25;
-    hud.setClock(sun > 0.3 ? '☀️' : sun > -0.3 ? (dayT < 0.5 ? '🌅' : '🌄') : '🌙');
+    hud.setClock(
+      this.rainIntensity > 0.5 ? '🌧️' : sun > 0.3 ? '☀️' : sun > -0.3 ? (dayT < 0.5 ? '🌅' : '🌄') : '🌙',
+    );
+  }
+
+  private updateWeather(dt: number): void {
+    this.weatherT -= dt;
+    if (this.weatherT <= 0) {
+      if (this.weather === 'clear') {
+        this.weather = 'rain';
+        this.weatherT = 35 + Math.random() * 45; // 雨持续 35~80 秒
+        hud.toast('🌧️ 下雨了——脚步变得沉重');
+      } else {
+        this.weather = 'clear';
+        this.weatherT = 80 + Math.random() * 110; // 晴 80~190 秒
+      }
+    }
+    // 雨强渐变
+    const target = this.weather === 'rain' ? 1 : 0;
+    const delta = target - this.rainIntensity;
+    this.rainIntensity += Math.sign(delta) * Math.min(Math.abs(delta), dt * 0.35);
+    hud.setWeatherDim(this.rainIntensity * 0.24);
+    sfx.setRain(this.rainIntensity);
+
+    // 雨幕粒子（屏幕空间）
+    if (this.rainIntensity > 0.02) {
+      if (this.rainDrops.length === 0) {
+        for (let i = 0; i < 130; i++) {
+          const g = new Graphics();
+          g.moveTo(0, 0).lineTo(-4, 17).stroke({ width: 1.4, color: 0xa8c8e0, alpha: 0.75 });
+          g.position.set(Math.random() * (this.app.screen.width + 240) - 120, Math.random() * this.app.screen.height);
+          this.rainC.addChild(g);
+          this.rainDrops.push({ g, spd: 680 + Math.random() * 380 });
+        }
+      }
+      this.rainC.visible = true;
+      this.rainC.alpha = this.rainIntensity * 0.75;
+      const h = this.app.screen.height;
+      const w = this.app.screen.width;
+      for (const d of this.rainDrops) {
+        d.g.y += d.spd * dt;
+        d.g.x -= d.spd * 0.24 * dt;
+        if (d.g.y > h + 20) {
+          d.g.y = -25 - Math.random() * 50;
+          d.g.x = Math.random() * (w + 240) - 120;
+        }
+      }
+    } else {
+      this.rainC.visible = false;
+    }
   }
 
   private updateRespawns(dt: number): void {
@@ -948,7 +1007,7 @@ export class Game {
   private saveNow(): void {
     const p = this.player;
     const data: SaveData = {
-      version: 3,
+      version: 4,
       seed: this.seed,
       campfireId: this.campfireId,
       removedNodes: [...this.removedNodes],

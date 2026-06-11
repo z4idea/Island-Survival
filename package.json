@@ -1,0 +1,22 @@
+{
+  "name": "island-survival",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Island Survival - a Hades-like top-down island exploration survival game",
+  "author": "zhjj",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dimforge/rapier2d-compat": "^0.14.0",
+    "pixi.js": "^8.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^4.5.5"
+  }
+}

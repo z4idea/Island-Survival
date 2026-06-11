@@ -1,0 +1,128 @@
+<!-- @author: zhjj -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏝️</text></svg>" />
+  <title>孤岛求生 · Island Survival</title>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- 昼夜色调遮罩 -->
+  <div id="night-overlay"></div>
+  <!-- 受伤红色边缘闪烁 -->
+  <div id="vignette"></div>
+
+  <!-- 游戏内 HUD -->
+  <div id="hud" class="hidden">
+    <div id="status-panel">
+      <div class="bar-row">
+        <span class="bar-icon">❤</span>
+        <div class="bar hp-bar"><div id="hp-fill" class="bar-fill"></div><span id="hp-text" class="bar-text"></span></div>
+        <span id="poison-icon" class="hidden" title="中毒：持续掉血，进食可解">☠️</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-icon">⚡</span>
+        <div class="bar stam-bar"><div id="stam-fill" class="bar-fill"></div></div>
+      </div>
+      <div id="resources">
+        <span class="res"><i>🪵</i><b id="res-wood">0</b></span>
+        <span class="res"><i>🪨</i><b id="res-stone">0</b></span>
+        <span class="res"><i>🫐</i><b id="res-berry">0</b></span>
+        <span class="res"><i>🍖</i><b id="res-meat">0</b></span>
+        <span class="res"><i>🐾</i><b id="res-hide">0</b></span>
+      </div>
+    </div>
+
+    <div id="minimap-box">
+      <canvas id="minimap" width="160" height="160"></canvas>
+      <div id="clock">☀️</div>
+    </div>
+
+    <div id="boss-bar-box" class="hidden">
+      <div id="boss-name">岛屿之王 · 远古巨熊</div>
+      <div class="bar boss-bar"><div id="boss-fill" class="bar-fill"></div></div>
+    </div>
+
+    <div id="hotbar">
+      <div class="slot" data-slot="0"><span class="slot-key">1</span><span class="slot-icon">🗡️</span><span class="slot-name">猎刀</span></div>
+      <div class="slot" data-slot="1"><span class="slot-key">2</span><span class="slot-icon">🔱</span><span class="slot-name">长矛</span></div>
+      <div class="slot" data-slot="2"><span class="slot-key">3</span><span class="slot-icon">🏹</span><span class="slot-name">短弓</span></div>
+    </div>
+
+    <div id="prompt" class="hidden"></div>
+    <div id="toast" class="hidden"></div>
+  </div>
+
+  <!-- 标题画面 -->
+  <div id="title-screen">
+    <div class="sea-bg"></div>
+    <div class="title-content">
+      <h1 class="game-title">孤岛求生</h1>
+      <div class="game-subtitle">ISLAND&nbsp;SURVIVAL</div>
+      <p class="tagline">独自漂流至无名孤岛 —— 采集、狩猎、强化自身，击败盘踞山巅的岛屿之王。</p>
+      <div class="menu-buttons">
+        <button id="btn-new" class="btn btn-primary">🌊 新的旅程</button>
+        <button id="btn-continue" class="btn" disabled>🔥 继续旅程</button>
+      </div>
+      <div class="controls-help">
+        <span><kbd>W A S D</kbd> 移动</span>
+        <span><kbd>鼠标</kbd> 瞄准 / <kbd>左键</kbd> 攻击</span>
+        <span><kbd>空格</kbd> 翻滚闪避</span>
+        <span><kbd>1 2 3</kbd> 切换武器</span>
+        <span><kbd>E</kbd> 互动</span>
+        <span><kbd>Q</kbd> 吃浆果 <kbd>F</kbd> 吃肉</span>
+        <span><kbd>Esc</kbd> 暂停</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 死亡画面 -->
+  <div id="death-screen" class="overlay hidden">
+    <div class="panel">
+      <h2 class="death-title">你倒下了…</h2>
+      <p class="dim">海浪声渐渐远去，篝火的温暖将你唤醒。</p>
+      <button id="btn-respawn" class="btn btn-primary">🔥 在篝火旁醒来</button>
+    </div>
+  </div>
+
+  <!-- 胜利画面 -->
+  <div id="win-screen" class="overlay hidden">
+    <div class="panel">
+      <h2 class="win-title">🏆 岛屿之王已陨落</h2>
+      <p class="dim">远古巨熊轰然倒地，整座孤岛都安静了下来。<br/>从今往后，这片土地由你守护。</p>
+      <button id="btn-win-continue" class="btn btn-primary">继续探索这座岛</button>
+    </div>
+  </div>
+
+  <!-- 暂停画面 -->
+  <div id="pause-screen" class="overlay hidden">
+    <div class="panel">
+      <h2>暂停</h2>
+      <div class="pause-help">
+        <span><kbd>W A S D</kbd> 移动 · <kbd>左键</kbd> 攻击 · <kbd>空格</kbd> 翻滚</span>
+        <span><kbd>E</kbd> 互动 · <kbd>Q</kbd>/<kbd>F</kbd> 进食 · <kbd>M</kbd> 静音</span>
+        <span>在 🔥 篝火旁可以 保存 / 治疗 / 强化</span>
+      </div>
+      <button id="btn-resume" class="btn btn-primary">继续游戏</button>
+      <button id="btn-quit" class="btn">回到标题（自动保存进度除外）</button>
+    </div>
+  </div>
+
+  <!-- 篝火菜单 -->
+  <div id="campfire-menu" class="overlay hidden">
+    <div class="panel campfire-panel">
+      <h2>🔥 篝火</h2>
+      <p class="dim">火光摇曳，这里很安全。</p>
+      <button id="cf-rest" class="btn btn-primary">🛌 休息并保存 <small>（恢复全部生命）</small></button>
+      <button id="cf-atk" class="btn cf-upgrade"></button>
+      <button id="cf-hp" class="btn cf-upgrade"></button>
+      <button id="cf-stam" class="btn cf-upgrade"></button>
+      <button id="cf-close" class="btn btn-ghost">离开（Esc）</button>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -358,6 +358,14 @@ export class Player {
         sfx.ui();
       }
     }
+    // 滚轮循环切换武器（向下 = 下一把，向上 = 上一把）
+    if (input.wheel !== 0 && this.weapons.length > 1) {
+      const dir = input.wheel > 0 ? 1 : -1;
+      this.weaponIdx = (this.weaponIdx + dir + this.weapons.length) % this.weapons.length;
+      this.drawWeapon();
+      hud.setWeapon(this.weaponIdx);
+      sfx.ui();
+    }
 
     // 攻击
     if (input.mouseLeft && this.cd <= 0 && !game.menuOpen) {

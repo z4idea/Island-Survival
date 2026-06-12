@@ -659,9 +659,14 @@ export class Game {
     }
   }
 
+  /** 随游戏时长的成长系数：每分钟 +2%，上限 +150%（动物出生时快照） */
+  get growthFactor(): number {
+    return 1 + Math.min((this.playTime / 60) * 0.02, 1.5);
+  }
+
   private spawnAnimal(idx: number): void {
     const r = this.spawnRecords[idx];
-    const a = new Animal(this.physWorld, r.kind as never, r.x, r.y, idx, G_ANIMAL);
+    const a = new Animal(this.physWorld, r.kind as never, r.x, r.y, idx, G_ANIMAL, this.growthFactor);
     this.objects.addChild(a.root);
     this.animals.push(a);
     r.animal = a;
@@ -1036,7 +1041,7 @@ export class Game {
     // Boss 血条
     const bear = this.animals.find((a) => a.def.boss && !a.dead);
     if (bear && (bear.aggro || Math.hypot(bear.x - this.player.x, bear.y - this.player.y) < 15)) {
-      hud.setBossBar(bear.hp / bear.def.hp);
+      hud.setBossBar(bear.hp / bear.maxHp);
       if (bear.aggro && !this.bossWarned) {
         this.bossWarned = true;
         hud.toast('⚠️ 岛屿之王苏醒了！');
@@ -1064,6 +1069,18 @@ export class Game {
 
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
     return { x: (sx - this.worldC.x) / SCALE, y: (sy - this.worldC.y) / SCALE };
+  }
+
+  /** 该世界坐标是否为实心体（洞穴岩壁）——箭矢等投射物不可穿透 */
+  isSolidAt(x: number, y: number): boolean {
+    for (const c of this.caves) {
+      const lx = Math.floor(x - c.ox);
+      const ly = Math.floor(y - c.oy);
+      if (lx >= 0 && ly >= 0 && lx < CAVE_SIZE && ly < CAVE_SIZE) {
+        return c.cells[ly * CAVE_SIZE + lx] === 0; // 0 = 岩壁
+      }
+    }
+    return false;
   }
 
   meleeStrike(player: Player, wd: WeaponDef): void {

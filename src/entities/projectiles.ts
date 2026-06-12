@@ -53,35 +53,43 @@ export class Projectiles {
         continue;
       }
       a.life -= dt;
-      a.x += a.vx * dt;
-      a.y += a.vy * dt;
-      a.sprite.position.set(a.x * SCALE, a.y * SCALE);
-
+      // 子步进移动：箭速很快（最高 26 格/秒），整帧位移可能越过细小实体，
+      // 按 ≤0.22 格一步推进并逐步检测，保证树干/岩壁不被穿透
+      const moveLen = Math.hypot(a.vx, a.vy) * dt;
+      const steps = Math.max(1, Math.ceil(moveLen / 0.22));
       let hit = false;
-      // 命中动物（吸附在玩家头上的蝙蝠射不到）
-      for (const an of game.animals) {
-        if (an.dead || an.latched) continue;
-        const d = Math.hypot(an.x - a.x, an.y - a.y);
-        if (d < an.def.radius + 0.22) {
-          const dir = Math.atan2(a.vy, a.vx);
-          an.damage(a.dmg, Math.cos(dir) * a.knock, Math.sin(dir) * a.knock, game);
-          game.onArrowHit(a.x, a.y);
-          hit = true;
-          break;
-        }
-      }
-      // 钉在树干 / 岩石上
-      if (!hit) {
-        for (const n of game.nodes) {
-          if (!n.alive || n.kind === 'bush') continue;
-          const d = Math.hypot(n.x - a.x, n.y - a.y);
-          if (d < 0.38) {
-            a.stuck = 1.4;
-            hit = false;
+      for (let s = 0; s < steps && !hit && a.stuck <= 0; s++) {
+        a.x += (a.vx * dt) / steps;
+        a.y += (a.vy * dt) / steps;
+        // 命中动物（吸附在玩家头上的蝙蝠射不到）
+        for (const an of game.animals) {
+          if (an.dead || an.latched) continue;
+          const d = Math.hypot(an.x - a.x, an.y - a.y);
+          if (d < an.def.radius + 0.22) {
+            const dir = Math.atan2(a.vy, a.vx);
+            an.damage(a.dmg, Math.cos(dir) * a.knock, Math.sin(dir) * a.knock, game);
+            game.onArrowHit(a.x, a.y);
+            hit = true;
             break;
           }
         }
+        if (hit) break;
+        // 钉在实体上：树干 / 岩石 / 浆果丛 / 水晶
+        for (const n of game.nodes) {
+          if (!n.alive) continue;
+          const blockR = n.kind === 'bush' ? 0.5 : n.kind === 'rock' ? 0.45 : 0.38;
+          if (Math.hypot(n.x - a.x, n.y - a.y) < blockR) {
+            a.stuck = 1.4;
+            break;
+          }
+        }
+        // 钉在洞穴岩壁上
+        if (a.stuck <= 0 && game.isSolidAt(a.x, a.y)) {
+          a.stuck = 1.4;
+          game.particles.burst(a.x, a.y, { color: 0x9a9a92, count: 3, speed: 1.5, life: 0.3, size: 2 });
+        }
       }
+      a.sprite.position.set(a.x * SCALE, a.y * SCALE);
       if (hit) {
         this.remove(i);
       } else if (a.life <= 0 && a.stuck <= 0) {

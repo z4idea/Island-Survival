@@ -21,6 +21,9 @@ export class Animal {
   x: number;
   y: number;
   hp: number;
+  maxHp: number; // 出生时按成长系数定格
+  dmg: number;
+  private speedMul: number;
   dead = false;
   spawnIdx: number;
   burnT = 0; // 灼烧剩余时间（烈焰剑）
@@ -49,11 +52,24 @@ export class Animal {
   private roared = false;
   aggro = false;
 
-  constructor(world: RAPIER.World, kind: AnimalKind, x: number, y: number, spawnIdx: number, groups: number) {
+  constructor(
+    world: RAPIER.World,
+    kind: AnimalKind,
+    x: number,
+    y: number,
+    spawnIdx: number,
+    groups: number,
+    growth = 1, // 随游戏时长的成长系数（出生时快照）
+  ) {
     this.def = ANIMALS[kind];
+    // Boss 按半速成长，避免拖得久就打不动
+    const g = this.def.boss ? 1 + (growth - 1) * 0.5 : growth;
+    this.maxHp = Math.round(this.def.hp * g);
+    this.hp = this.maxHp;
+    this.dmg = this.def.dmg * g;
+    this.speedMul = 1 + (g - 1) * 0.3; // 速度涨得最慢
     this.x = x;
     this.y = y;
-    this.hp = this.def.hp;
     this.home = { x, y };
     this.tx = x;
     this.ty = y;
@@ -310,7 +326,7 @@ export class Animal {
 
     let vx = 0;
     let vy = 0;
-    let speed = this.def.speed * (this.def.boss && this.hp < this.def.hp * 0.35 ? 1.3 : 1);
+    let speed = this.def.speed * this.speedMul * (this.def.boss && this.hp < this.maxHp * 0.35 ? 1.3 : 1);
     if (night && this.def.kind === 'wolf') speed *= 1.15; // 夜晚狼群更迅捷
 
     switch (this.state) {
@@ -408,7 +424,7 @@ export class Animal {
             this.atkCd = this.def.atkCd;
             const hitR = this.def.atkR + 0.55;
             if (dist < hitR && !p.dead) {
-              const landed = p.takeDamage(this.def.dmg, (dx / (dist || 1)) * 7, (dy / (dist || 1)) * 7, game);
+              const landed = p.takeDamage(this.dmg, (dx / (dist || 1)) * 7, (dy / (dist || 1)) * 7, game);
               if (landed && this.def.poison) p.applyPoison(4, game);
               if (landed && this.def.charm) p.applyCharm(3, game);
             }
@@ -424,7 +440,7 @@ export class Animal {
         vy = this.chargeDy * chargeSpeed;
         // 冲撞判定
         if (dist < this.def.radius + 0.55 && !p.dead) {
-          const landed = p.takeDamage(this.def.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
+          const landed = p.takeDamage(this.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
           if (landed && this.def.poison) p.applyPoison(4, game);
           if (landed && this.def.charm) p.applyCharm(3, game);
           this.setState('chase');
@@ -518,7 +534,7 @@ export class Animal {
         this.hpBar.clear();
         const top = -this.def.radius * SCALE - 16;
         this.hpBar.rect(-w / 2, top, w, 4).fill({ color: 0x000000, alpha: 0.6 });
-        this.hpBar.rect(-w / 2 + 0.5, top + 0.5, (w - 1) * Math.max(0, this.hp / this.def.hp), 3).fill(0xe05448);
+        this.hpBar.rect(-w / 2 + 0.5, top + 0.5, (w - 1) * Math.max(0, this.hp / this.maxHp), 3).fill(0xe05448);
       }
     } else {
       this.hpBar.visible = false;

@@ -8,6 +8,7 @@ export class Input {
   mouseY = 0;
   mouseLeft = false;
   mouseRight = false;
+  wheel = 0; // 本帧滚轮方向累积：>0 向下，<0 向上
   private mousePressedLeft = false;
   private mousePressedRight = false;
 
@@ -40,6 +41,9 @@ export class Input {
       else if (e.button === 2) this.mouseRight = false;
     });
     window.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener('wheel', (e) => {
+      this.wheel += Math.sign(e.deltaY);
+    });
   }
 
   isDown(code: string): boolean {
@@ -63,5 +67,6 @@ export class Input {
     this.pressed.clear();
     this.mousePressedLeft = false;
     this.mousePressedRight = false;
+    this.wheel = 0;
   }
 }

@@ -4,9 +4,9 @@
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Application, Container, Graphics } from 'pixi.js';
 import {
-  DAY_LENGTH, GROUPS, MAP, SCALE, Tile, UPGRADES,
+  ARTIFACTS, DAY_LENGTH, GROUPS, MAP, SCALE, Tile, UPGRADES,
   GEAR_BY_ID, SKIN_BY_ID, TALENT_BY_ID, WEAPON_BY_ID, WEAPON_UPG,
-  type ResKind, type WeaponDef,
+  type ArtifactDef, type ResKind, type WeaponDef,
 } from './defs';
 import { Input } from './core/input';
 import { sfx } from './core/audio';
@@ -83,6 +83,29 @@ interface CaveChest {
   g: Graphics;
 }
 
+/** 神器祝福降临点：天降白色光柱，按 E 接受祝福 */
+interface BlessingSite {
+  x: number;
+  y: number;
+  root: Container;
+  beam: Graphics;
+  orb: Graphics;
+  pulse: Graphics;
+  t: number;
+}
+
+/** 冥火（阿比努斯的权杖）：聚集 → 爆发灼烧 → 余焰 */
+interface NetherFire {
+  x: number;
+  y: number;
+  t: number;
+  aoeR: number;
+  dmg: number;
+  knock: number;
+  exploded: boolean;
+  g: Graphics;
+}
+
 export class Game {
   app!: Application;
   input = new Input();
@@ -112,6 +135,12 @@ export class Game {
   private openedChests = new Set<number>();
   private caveAnimalSpawns: { kind: string; x: number; y: number }[] = [];
 
+  // 神器祝福
+  private blessing: BlessingSite | null = null;
+  private blessingCd = 45 + Math.random() * 45; // 距下一道神光降临的秒数
+  private pendingArtifact: ArtifactDef | null = null;
+  private netherFires: NetherFire[] = [];
+
   // 天气：晴 / 雨（雨天玩家移速降低）
   private weather: 'clear' | 'rain' = 'clear';
   rainIntensity = 0; // 0..1 渐变
@@ -132,7 +161,7 @@ export class Game {
 
   paused = false;
   menuOpen = false;
-  private menuKind: 'campfire' | 'shop' | null = null;
+  private menuKind: 'campfire' | 'shop' | 'blessing' | null = null;
   private shopTab: hud.ShopTab = 'weapons';
   private activeCampfire: Campfire | null = null;
   private state: 'playing' | 'dead' = 'playing';
@@ -208,6 +237,7 @@ export class Game {
       this.player.activeSkin = p.activeSkin;
       this.player.talents = new Set(p.talents);
       this.player.gear = new Set(p.gear);
+      this.player.relics = new Set(p.relics ?? []);
       this.player.weaponIdx = Math.min(p.weapon, this.player.weapons.length - 1);
       this.player.drawWeapon();
       this.removedNodes = new Set(save.removedNodes);
@@ -699,6 +729,7 @@ export class Game {
 
   private handleEsc(): void {
     if (this.menuOpen) {
+      if (this.menuKind === 'blessing') return; // 祝福仪式不可中断
       if (this.menuKind === 'shop') this.closeShop();
       else this.campfireAction('close');
     } else if (this.paused) {
@@ -742,6 +773,8 @@ export class Game {
     this.drops.update(dt, this);
     this.particles.update(dt);
     this.floats.update(dt);
+    this.updateNetherFires(dt);
+    this.updateBlessing(dt);
     this.updateNodes(dt);
     this.updateCampfires(dt);
     this.updateInteraction();
@@ -843,8 +876,12 @@ export class Game {
         }
       }
     }
+    // 神器祝福光柱
+    const nearBless =
+      !nearCf && !nearCave && this.blessing !== null &&
+      Math.hypot(this.blessing.x - p.x, this.blessing.y - p.y) < 2.0;
     let nearBush: WNode | null = null;
-    if (!nearCf && !nearCave) {
+    if (!nearCf && !nearCave && !nearBless) {
       for (const n of this.nodes) {
         if (n.alive && n.kind === 'bush' && n.berries && Math.hypot(n.x - p.x, n.y - p.y) < 1.4) {
           nearBush = n;
@@ -857,6 +894,8 @@ export class Game {
       hud.showPrompt('<kbd>E</kbd> 篝火 — 保存 · 强化 · 商店');
     } else if (nearCave) {
       hud.showPrompt('<kbd>E</kbd> 进入洞穴');
+    } else if (nearBless) {
+      hud.showPrompt('<kbd>E</kbd> 沐浴圣光 — 接受神器祝福');
     } else if (nearBush) {
       hud.showPrompt('<kbd>E</kbd> 采摘浆果');
     } else {
@@ -873,8 +912,213 @@ export class Game {
         sfx.ui();
       } else if (nearCave) {
         this.enterCave(nearCave.id);
+      } else if (nearBless) {
+        this.startBlessing();
       } else if (nearBush) {
         this.harvestBush(nearBush);
+      }
+    }
+  }
+
+  // ---------------- 神器祝福 ----------------
+
+  /** 尚未拥有的神器 */
+  private remainingArtifacts(): ArtifactDef[] {
+    return ARTIFACTS.filter((a) =>
+      a.slot === 'weapon' ? !this.player.weapons.includes(a.id) : !this.player.relics.has(a.id),
+    );
+  }
+
+  private updateBlessing(dt: number): void {
+    if (!this.blessing) {
+      if (this.remainingArtifacts().length === 0) return; // 神器集齐，神光不再降临
+      this.blessingCd -= dt;
+      if (this.blessingCd <= 0) this.spawnBlessing();
+      return;
+    }
+    const b = this.blessing;
+    b.t += dt;
+    // 光柱呼吸 + 圣辉光珠浮动
+    b.beam.alpha = 0.8 + Math.sin(b.t * 2.1) * 0.2;
+    b.orb.y = -38 + Math.sin(b.t * 1.7) * 5;
+    b.orb.rotation = b.t * 0.8;
+    // 地面扩散光环
+    const pt = (b.t % 1.5) / 1.5;
+    b.pulse.scale.set(0.3 + pt * 1.1);
+    b.pulse.alpha = (1 - pt) * 0.5;
+    // 升腾的光尘（仅玩家附近时发射）
+    if (Math.abs(b.x - this.player.x) + Math.abs(b.y - this.player.y) < 45 && Math.random() < dt * 7) {
+      this.particles.burst(b.x + (Math.random() - 0.5) * 1.6, b.y - Math.random() * 0.8, {
+        color: Math.random() < 0.6 ? 0xfffbe8 : 0xffe9a0, count: 1, speed: 0.7, life: 1.0, size: 2.2, alpha: 0.9,
+      });
+    }
+  }
+
+  /** 在随机岛屿陆地上降下神光 */
+  private spawnBlessing(): void {
+    const w = this.worldData;
+    let pos: { x: number; y: number } | null = null;
+    for (let attempt = 0; attempt < 80 && !pos; attempt++) {
+      const isle = w.isles[Math.floor(Math.random() * w.isles.length)];
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * isle.r * 0.7;
+      const x = isle.x + Math.cos(a) * r;
+      const y = isle.y + Math.sin(a) * r;
+      if (!w.isWalkable(x, y)) continue;
+      if (Math.hypot(x - w.bossPos.x, y - w.bossPos.y) < 14) continue;
+      if (w.campfires.some((f) => Math.hypot(f.x - x, f.y - y) < 5)) continue;
+      if (this.caves.some((c) => Math.hypot(c.ex - x, c.ey - y) < 5)) continue;
+      if (Math.hypot(x - this.player.x, y - this.player.y) < 18) continue;
+      pos = { x, y };
+    }
+    if (!pos) {
+      this.blessingCd = 20; // 没找到落点，稍后再试
+      return;
+    }
+
+    const root = new Container();
+    root.position.set(pos.x * SCALE, pos.y * SCALE);
+    root.zIndex = pos.y;
+
+    // 斜上方天空洒下的白色光柱（多层加色混合）
+    const beam = new Graphics();
+    beam.poly([-15, 0, 15, 0, 175, -660, 95, -680]).fill({ color: 0xfff6dc, alpha: 0.1 });
+    beam.poly([-10, 0, 10, 0, 160, -645, 110, -660]).fill({ color: 0xfffbe8, alpha: 0.14 });
+    beam.poly([-4.5, 0, 4.5, 0, 142, -630, 122, -636]).fill({ color: 0xffffff, alpha: 0.3 });
+    beam.blendMode = 'add';
+    root.addChild(beam);
+
+    // 地面光晕与扩散光环
+    const glow = new Graphics();
+    glow.ellipse(0, 2, 30, 12).fill({ color: 0xfff6dc, alpha: 0.3 });
+    glow.ellipse(0, 2, 16, 6.5).fill({ color: 0xffffff, alpha: 0.4 });
+    glow.blendMode = 'add';
+    root.addChild(glow);
+    const pulse = new Graphics();
+    pulse.ellipse(0, 2, 30, 12).stroke({ width: 2.5, color: 0xfffbe8 });
+    root.addChild(pulse);
+
+    // 悬浮的圣辉光珠
+    const orb = new Graphics();
+    orb.circle(0, 0, 13).fill({ color: 0xfff6dc, alpha: 0.25 });
+    orb.circle(0, 0, 7).fill({ color: 0xffffff, alpha: 0.9 });
+    orb.moveTo(-17, 0).lineTo(17, 0).stroke({ width: 1.5, color: 0xfffbe8, alpha: 0.7 });
+    orb.moveTo(0, -17).lineTo(0, 17).stroke({ width: 1.5, color: 0xfffbe8, alpha: 0.7 });
+    orb.blendMode = 'add';
+    orb.y = -38;
+    root.addChild(orb);
+
+    this.objects.addChild(root);
+    this.blessing = { x: pos.x, y: pos.y, root, beam, orb, pulse, t: 0 };
+    hud.toast('✨ 一道神圣的白光自天而降…（小地图上已标记）', 3200);
+    sfx.reveal();
+  }
+
+  /** 按 E：开始祝福仪式（世界冻结，播放抽取动画） */
+  private startBlessing(): void {
+    const rem = this.remainingArtifacts();
+    if (rem.length === 0) return;
+    this.pendingArtifact = rem[Math.floor(Math.random() * rem.length)];
+    this.menuOpen = true;
+    this.menuKind = 'blessing';
+    sfx.blessing();
+    hud.showBlessingCeremony(this.pendingArtifact, () => sfx.reveal());
+  }
+
+  /** 祝福仪式「接受」按钮：发放神器 */
+  acceptBlessing(): void {
+    const art = this.pendingArtifact;
+    if (!art) return;
+    this.pendingArtifact = null;
+    const p = this.player;
+    if (art.slot === 'weapon') {
+      if (!p.weapons.includes(art.id)) p.weapons.push(art.id);
+      p.weaponIdx = p.weapons.indexOf(art.id); // 立即装备
+      p.drawWeapon();
+      hud.buildHotbar(p.weapons, p.weaponIdx);
+    } else {
+      p.relics.add(art.id);
+    }
+    if (this.blessing) {
+      this.objects.removeChild(this.blessing.root);
+      this.blessing.root.destroy({ children: true });
+      this.blessing = null;
+    }
+    this.blessingCd = 150 + Math.random() * 120; // 下一道神光
+    this.menuOpen = false;
+    this.menuKind = null;
+    hud.hideBlessing();
+    hud.toast(`${art.icon} 获得神器「${art.name}」！`);
+    this.particles.burst(p.x, p.y - 0.4, { color: 0xfff0c0, count: 18, speed: 3, life: 0.8, size: 3 });
+    sfx.upgrade();
+  }
+
+  // ---------------- 冥火（阿比努斯的权杖） ----------------
+
+  /** 在目标点召唤冥火：短暂聚集后爆发，灼烧范围内的动物 */
+  castNetherFire(x: number, y: number, dmg: number, aoeR: number, knock: number): void {
+    const g = new Graphics();
+    g.position.set(x * SCALE, y * SCALE);
+    g.zIndex = y;
+    this.objects.addChild(g);
+    this.netherFires.push({ x, y, t: 0, aoeR, dmg, knock, exploded: false, g });
+  }
+
+  private updateNetherFires(dt: number): void {
+    const DELAY = 0.22; // 法阵聚集时间
+    const DUR = 0.95; // 总时长
+    for (let i = this.netherFires.length - 1; i >= 0; i--) {
+      const f = this.netherFires[i];
+      f.t += dt;
+      if (f.t >= DUR) {
+        this.objects.removeChild(f.g);
+        f.g.destroy();
+        this.netherFires.splice(i, 1);
+        continue;
+      }
+      if (!f.exploded && f.t >= DELAY) {
+        f.exploded = true;
+        // 爆发：灼烧范围内动物（吸附中 / 高飞的蝙蝠打不到，与近战规则一致）
+        for (const a of this.animals) {
+          if (a.dead || a.latched || a.def.meleeImmune) continue;
+          if (Math.hypot(a.x - f.x, a.y - f.y) > f.aoeR + a.def.radius) continue;
+          const kd = Math.atan2(a.y - f.y, a.x - f.x);
+          a.damage(f.dmg * (0.9 + Math.random() * 0.2), Math.cos(kd) * f.knock, Math.sin(kd) * f.knock, this);
+          if (!a.dead) a.burnT = Math.max(a.burnT, 3);
+        }
+        this.particles.burst(f.x, f.y - 0.2, { color: 0x4ae0a0, count: 14, speed: 3.2, life: 0.6, size: 3 });
+        this.particles.burst(f.x, f.y - 0.3, { color: 0x7af0c8, count: 8, speed: 2.2, life: 0.5, size: 2.5 });
+        this.addShake(0.16);
+        sfx.hit();
+      }
+      // 绘制：聚集阶段的冥界法阵 → 爆发后的冥火火柱
+      const g = f.g;
+      g.clear();
+      const R = f.aoeR * SCALE;
+      if (f.t < DELAY) {
+        const k = f.t / DELAY;
+        g.ellipse(0, 0, R * k, R * k * 0.5).stroke({ width: 2.5, color: 0x8a5aff, alpha: 0.8 });
+        g.ellipse(0, 0, R * k * 0.55, R * k * 0.28).stroke({ width: 1.5, color: 0x7af0c8, alpha: 0.9 });
+        g.circle(0, 0, 3 + k * 4).fill({ color: 0x4ae0a0, alpha: 0.8 });
+      } else {
+        const k = (f.t - DELAY) / (DUR - DELAY); // 0..1 爆发进度
+        const fade = 1 - k;
+        // 焦土法阵
+        g.ellipse(0, 0, R, R * 0.5).fill({ color: 0x1a3a2e, alpha: 0.35 * fade });
+        g.ellipse(0, 0, R, R * 0.5).stroke({ width: 2, color: 0x4ae0a0, alpha: 0.6 * fade });
+        // 三簇跳动的冥火
+        for (let n = 0; n < 3; n++) {
+          const ox = (n - 1) * R * 0.5;
+          const oy = (n % 2 === 0 ? 1 : -1) * R * 0.14;
+          const h = (26 + Math.sin(this.time * 16 + n * 2.4) * 6) * (0.55 + 0.45 * fade) * (n === 1 ? 1.5 : 1);
+          const w2 = 7 * (n === 1 ? 1.4 : 1);
+          g.poly([ox - w2, oy, ox - w2 * 0.3, oy - h * 0.55, ox, oy - h, ox + w2 * 0.3, oy - h * 0.5, ox + w2, oy])
+            .fill({ color: 0x2a8a6a, alpha: 0.85 * fade });
+          g.poly([ox - w2 * 0.55, oy, ox, oy - h * 0.62, ox + w2 * 0.55, oy])
+            .fill({ color: 0x4ae0a0, alpha: 0.9 * fade });
+          g.poly([ox - w2 * 0.26, oy, ox, oy - h * 0.34, ox + w2 * 0.26, oy])
+            .fill({ color: 0xb8ffe0, alpha: 0.9 * fade });
+        }
       }
     }
   }
@@ -1035,7 +1279,7 @@ export class Game {
       const mx = this.inCave !== null ? this.caves[this.inCave].ex : this.player.x;
       const my = this.inCave !== null ? this.caves[this.inCave].ey : this.player.y;
       if (this.inCave === null) this.revealAround(this.player.x, this.player.y);
-      hud.drawMinimap(this.worldData, mx, my, !this.bossDefeated);
+      hud.drawMinimap(this.worldData, mx, my, !this.bossDefeated, this.blessing);
     }
 
     // Boss 血条
@@ -1446,6 +1690,7 @@ export class Game {
         activeSkin: p.activeSkin,
         talents: [...p.talents],
         gear: [...p.gear],
+        relics: [...p.relics],
       },
       explored: packExplored(this.explored),
       openedChests: [...this.openedChests],

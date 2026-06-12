@@ -77,7 +77,7 @@
         <span><kbd>W A S D</kbd> 移动</span>
         <span><kbd>鼠标</kbd> 瞄准 / <kbd>左键</kbd> 攻击</span>
         <span><kbd>空格</kbd> 翻滚闪避</span>
-        <span><kbd>1~8</kbd> / <kbd>滚轮</kbd> 切换武器</span>
+        <span><kbd>1~9</kbd> / <kbd>滚轮</kbd> 切换武器</span>
         <span><kbd>E</kbd> 互动</span>
         <span><kbd>Q</kbd> 吃浆果 <kbd>F</kbd> 吃肉</span>
         <span><kbd>Esc</kbd> 暂停</span>
@@ -142,6 +142,28 @@
       <div id="shop-tabs"></div>
       <div id="shop-items"></div>
       <button id="shop-close" class="btn btn-ghost">离开（Esc）</button>
+    </div>
+  </div>
+
+  <!-- 神器祝福仪式 -->
+  <div id="blessing-screen" class="overlay hidden">
+    <div class="blessing-rays"></div>
+    <div class="blessing-stage">
+      <div class="blessing-title">神 器 祝 福</div>
+      <div class="blessing-sub">DIVINE&nbsp;ARTIFACT</div>
+      <div class="blessing-halo">
+        <div class="halo-ring r1"></div>
+        <div class="halo-ring r2"></div>
+        <div class="halo-glow"></div>
+        <div id="blessing-icon">✦</div>
+      </div>
+      <div class="blessing-reveal">
+        <div id="blessing-name"></div>
+        <div id="blessing-kind"></div>
+        <div id="blessing-desc"></div>
+        <div id="blessing-lore"></div>
+      </div>
+      <button id="blessing-accept" class="btn btn-primary hidden">✦ 接受祝福 ✦</button>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

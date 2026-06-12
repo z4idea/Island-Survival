@@ -9,6 +9,13 @@ import { sfx } from '../core/audio';
 
 type State = 'idle' | 'wander' | 'chase' | 'windup' | 'charge' | 'flee' | 'latch' | 'dying';
 
+/** 在 g 上画一颗小爱心（朝下尖） */
+function drawHeart(g: Graphics, x: number, y: number, s: number, color: number, alpha: number): void {
+  g.circle(x - s * 0.5, y - s * 0.3, s * 0.58).fill({ color, alpha });
+  g.circle(x + s * 0.5, y - s * 0.3, s * 0.58).fill({ color, alpha });
+  g.poly([x - s * 1.05, y - s * 0.08, x + s * 1.05, y - s * 0.08, x, y + s]).fill({ color, alpha });
+}
+
 export class Animal {
   def: AnimalDef;
   body: RAPIER.RigidBody | null;
@@ -17,6 +24,7 @@ export class Animal {
   private gfx = new Graphics();
   private hpBar = new Graphics();
   private alertG = new Graphics(); // 攻击预警（红色）
+  private lovedG = new Graphics(); // 坠入爱河：环绕的粉色爱心（丘比特的弓）
 
   x: number;
   y: number;
@@ -51,6 +59,9 @@ export class Animal {
   private dieT = 0;
   private roared = false;
   aggro = false;
+  loved = false; // 坠入爱河：不再主动攻击玩家（被打会心碎清醒）
+  private loveT = 0; // 爱心环绕动画相位
+  private loveFxT = 0; // 升腾爱心粒子间隔
 
   constructor(
     world: RAPIER.World,
@@ -94,6 +105,7 @@ export class Animal {
     this.root.addChild(this.bodyC);
     this.hpBar.visible = false;
     this.root.addChild(this.hpBar);
+    this.root.addChild(this.lovedG);
     this.root.position.set(x * SCALE, y * SCALE);
   }
 
@@ -357,7 +369,7 @@ export class Animal {
         // 进入仇恨 / 逃跑
         if (this.def.flee) {
           if (dist < 6 && !p.dead) this.setState('flee');
-        } else if (aggroR > 0 && dist < aggroR && !p.dead) {
+        } else if (aggroR > 0 && dist < aggroR && !p.dead && !this.loved) {
           this.startAggro(game);
         }
         break;
@@ -524,7 +536,27 @@ export class Animal {
     } else {
       this.bodyC.x = 0;
     }
-    this.gfx.tint = this.flashT > 0 ? 0xffb0b0 : this.burnT > 0 ? 0xffc8a0 : 0xffffff;
+    this.gfx.tint = this.flashT > 0 ? 0xffb0b0 : this.burnT > 0 ? 0xffc8a0 : this.loved ? 0xffc8e0 : 0xffffff;
+
+    // 坠入爱河：粉色爱心环绕 + 偶尔升腾的小爱心
+    this.lovedG.clear();
+    if (this.loved) {
+      this.loveT += dt;
+      const R = this.def.radius * SCALE + 9;
+      for (let i = 0; i < 3; i++) {
+        const a = this.loveT * 2.2 + (i * Math.PI * 2) / 3;
+        const hx = Math.cos(a) * R;
+        const hy = Math.sin(a) * R * 0.42 - this.def.radius * SCALE * 0.7;
+        drawHeart(this.lovedG, hx, hy, 3.2, 0xff7ab0, Math.sin(a) > 0 ? 0.95 : 0.5);
+      }
+      this.loveFxT -= dt;
+      if (this.loveFxT <= 0) {
+        this.loveFxT = 0.8 + Math.random() * 0.7;
+        game.particles.burst(this.x, this.y - this.def.radius - 0.3, {
+          color: 0xff9ac8, count: 2, speed: 1, life: 0.6, size: 2, alpha: 0.9,
+        });
+      }
+    }
 
     // 血条
     if (this.hpShowT > 0 || (this.def.boss && this.aggro)) {
@@ -548,6 +580,22 @@ export class Animal {
   /** 是否正吸附在玩家身上（吸附中无法被攻击） */
   get latched(): boolean {
     return this.state === 'latch';
+  }
+
+  /** 丘比特的弓：坠入爱河 —— 永久不再主动攻击玩家（被打会心碎清醒）。Boss 免疫 */
+  makeLoved(game: Game): void {
+    if (this.dead || this.loved) return;
+    if (this.def.boss) {
+      game.floats.show(this.x, this.y - 2, '巨兽不为所动…', 0xff8ac8, 14);
+      return;
+    }
+    this.loved = true;
+    this.aggro = false;
+    this.alertG.clear();
+    this.setState('wander');
+    game.floats.show(this.x, this.y - 1, '坠入爱河!', 0xff8ac8, 16);
+    game.particles.burst(this.x, this.y - 0.4, { color: 0xff8ac8, count: 14, speed: 2.5, life: 0.7, size: 3 });
+    sfx.love();
   }
 
   /** 强制脱离吸附（玩家进出洞穴 / 死亡时） */
@@ -584,6 +632,7 @@ export class Animal {
   }
 
   private startAggro(game: Game): void {
+    if (this.loved) return; // 坠入爱河：不会仇恨玩家
     this.aggro = true;
     this.setState('chase');
     if (this.def.boss && !this.roared) {
@@ -591,10 +640,10 @@ export class Animal {
       sfx.roar();
       game.addShake(0.6);
     }
-    // 狼群联动
+    // 狼群联动（爱河中的狼不响应）
     if (this.def.kind === 'wolf') {
       for (const a of game.animals) {
-        if (a !== this && !a.dead && a.def.kind === 'wolf' && Math.hypot(a.x - this.x, a.y - this.y) < 12) {
+        if (a !== this && !a.dead && !a.loved && a.def.kind === 'wolf' && Math.hypot(a.x - this.x, a.y - this.y) < 12) {
           if (a.state === 'idle' || a.state === 'wander') {
             a.aggro = true;
             a.setState('chase');
@@ -606,6 +655,12 @@ export class Animal {
 
   damage(dmg: number, kx: number, ky: number, game: Game): void {
     if (this.dead) return;
+    if (this.loved) {
+      // 被攻击会心碎清醒，恢复原本的脾气
+      this.loved = false;
+      this.lovedG.clear();
+      game.floats.show(this.x, this.y - 1.2, '心碎了…', 0xd88ab0, 13);
+    }
     this.hp -= dmg;
     this.flashT = 0.12;
     this.hpShowT = 4;

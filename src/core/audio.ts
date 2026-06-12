@@ -165,6 +165,37 @@ export class Sfx {
   ui(): void {
     this.tone(880, 0.05, 'sine', 0.1);
   }
+
+  /** 神器祝福：圣光降临的竖琴琶音 */
+  blessing(): void {
+    [523, 659, 784, 988, 1175].forEach((f, i) => setTimeout(() => this.tone(f, 0.5, 'sine', 0.16), i * 130));
+    this.noise(1.2, 0.05, 4000, 6500);
+  }
+
+  /** 神器揭晓的圣咏和弦 */
+  reveal(): void {
+    this.tone(784, 0.4, 'triangle', 0.2);
+    setTimeout(() => this.tone(1047, 0.5, 'triangle', 0.2), 120);
+    setTimeout(() => this.tone(1568, 0.8, 'sine', 0.16), 240);
+  }
+
+  /** 丘比特之箭：坠入爱河 */
+  love(): void {
+    this.tone(880, 0.12, 'sine', 0.16, 1100);
+    setTimeout(() => this.tone(1175, 0.2, 'sine', 0.14), 90);
+  }
+
+  /** 冥火爆发 */
+  nether(): void {
+    this.tone(120, 0.4, 'sawtooth', 0.2, 40);
+    this.noise(0.35, 0.28, 700, 120);
+  }
+
+  /** 圣翼冲刺 */
+  wing(): void {
+    this.noise(0.25, 0.22, 2800, 900);
+    this.tone(440, 0.22, 'triangle', 0.12, 880);
+  }
 }
 
 export const sfx = new Sfx();

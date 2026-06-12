@@ -25,6 +25,7 @@ export interface SaveData {
     activeSkin: string;
     talents: string[];
     gear: string[]; // 道具（小木舟等）
+    relics?: string[]; // 神器挂件（大天使的翅膀等，旧 v4 档可缺省）
   };
   explored: string; // 战争迷雾：按位打包 + base64
   openedChests?: number[]; // 洞穴中已开启的宝箱 id（v4 旧档可缺省）

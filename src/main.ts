@@ -54,6 +54,9 @@ function init(): void {
   $('cf-shop').addEventListener('click', () => game?.openShop());
   $('cf-close').addEventListener('click', () => game?.campfireAction('close'));
 
+  // 神器祝福仪式：接受按钮
+  $('blessing-accept').addEventListener('click', () => game?.acceptBlessing());
+
   // 商店：选项卡与购买按钮事件委托
   $('shop-close').addEventListener('click', () => game?.closeShop());
   $('shop-menu').addEventListener('click', (e) => {

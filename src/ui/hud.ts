@@ -2,8 +2,8 @@
 // HUD：生命/耐力条、资源计数、武器栏、小地图、提示与各类界面切换
 
 import {
-  CURRENCY, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
-  type CurrencyKind, type Price, type ResKind,
+  ARTIFACTS, CURRENCY, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
+  type ArtifactDef, type CurrencyKind, type Price, type ResKind,
 } from '../defs';
 import { STATUS_INFO, type StatusKind } from '../core/status';
 import type { WorldData } from '../world/worldgen';
@@ -255,6 +255,53 @@ export function renderShop(p: Player, tab: ShopTab): void {
   $('shop-items').innerHTML = html;
 }
 
+// ---------- 神器祝福仪式 ----------
+let blessTimer: number | undefined;
+
+/** 播放神器抽取仪式：图标快速轮换 → 减速 → 揭晓 → 显示「接受」按钮 */
+export function showBlessingCeremony(art: ArtifactDef, onReveal: () => void): void {
+  const screen = $('blessing-screen');
+  screen.classList.remove('hidden', 'revealed');
+  $('blessing-accept').classList.add('hidden');
+  $('blessing-name').textContent = '';
+  $('blessing-kind').textContent = '';
+  $('blessing-desc').textContent = '';
+  $('blessing-lore').textContent = '';
+  const icon = $('blessing-icon');
+  const pool = ARTIFACTS.map((a) => a.icon);
+  let i = Math.floor(Math.random() * pool.length);
+  let delay = 90;
+  if (blessTimer) clearTimeout(blessTimer);
+
+  const reveal = (): void => {
+    icon.textContent = art.icon;
+    const name = $('blessing-name');
+    name.textContent = art.name;
+    name.style.filter = `drop-shadow(0 0 18px ${art.css})`;
+    $('blessing-kind').textContent = art.slot === 'weapon' ? '✦ 神器 · 武器 ✦' : '✦ 神器 · 挂件 ✦';
+    $('blessing-desc').textContent = art.desc;
+    $('blessing-lore').textContent = art.lore;
+    screen.classList.add('revealed');
+    $('blessing-accept').classList.remove('hidden');
+    onReveal();
+  };
+  const spin = (): void => {
+    i = (i + 1) % pool.length;
+    icon.textContent = pool[i];
+    icon.classList.remove('tick');
+    void icon.offsetWidth; // 重置动画
+    icon.classList.add('tick');
+    delay *= 1.22;
+    blessTimer = window.setTimeout(delay < 520 ? spin : reveal, delay < 520 ? delay : 480);
+  };
+  spin();
+}
+
+export function hideBlessing(): void {
+  if (blessTimer) clearTimeout(blessTimer);
+  $('blessing-screen').classList.add('hidden');
+}
+
 // ---------- 篝火升级菜单 ----------
 export function updateCampfireMenu(player: Player): void {
   for (const up of UPGRADES) {
@@ -341,6 +388,7 @@ export function drawMinimap(
   px: number,
   py: number,
   bossAlive: boolean,
+  blessing: { x: number; y: number } | null = null,
 ): void {
   if (!mapBase || !fogCanvas) return;
   const canvas = $('minimap') as unknown as HTMLCanvasElement;
@@ -363,6 +411,25 @@ export function drawMinimap(
   }
   // 迷雾盖在标记之上 → 未探索的篝火/Boss 不可见
   ctx.drawImage(fogCanvas, 0, 0);
+  // 神器祝福：自天而降的指引之光，无视迷雾可见
+  if (blessing) {
+    ctx.save();
+    ctx.shadowColor = '#fffbe8';
+    ctx.shadowBlur = 7;
+    ctx.fillStyle = '#fffbe8';
+    ctx.strokeStyle = 'rgba(255, 251, 232, 0.85)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(blessing.x, blessing.y, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(blessing.x, blessing.y - 7);
+    ctx.lineTo(blessing.x, blessing.y + 7);
+    ctx.moveTo(blessing.x - 7, blessing.y);
+    ctx.lineTo(blessing.x + 7, blessing.y);
+    ctx.stroke();
+    ctx.restore();
+  }
   // 玩家永远可见
   ctx.fillStyle = '#ffffff';
   ctx.strokeStyle = '#000000';

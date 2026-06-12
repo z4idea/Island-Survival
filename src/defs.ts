@@ -118,6 +118,11 @@ export interface WeaponDef {
   lunge?: number; // 攻击时向前的小冲量
   flame?: boolean; // 点燃敌人（灼烧 DoT）
   chopBonus?: number; // 伐木/采石额外掉落
+  loveChance?: number; // 丘比特的弓：命中动物坠入爱河的概率
+  cast?: boolean; // 施法武器（权杖）：在鼠标点击处召唤攻击
+  castRange?: number; // 施法领域半径（世界单位）
+  aoeR?: number; // 施法爆发半径（世界单位）
+  artifact?: boolean; // 神器：不在商店出售，只能通过神器祝福获得
   price?: Price; // 有价格 = 需在商店购买；无价格 = 初始拥有
 }
 
@@ -132,6 +137,15 @@ export const WEAPONS: WeaponDef[] = [
   { id: 'hammer', name: '重锤', icon: '🔨', desc: '巨力一击，超强击退', dmg: 34, range: 1.85, arc: deg(110), cd: 0.95, knock: 16, lunge: 0.8, price: { gold: 25 } },
   { id: 'crossbow', name: '劲弩', icon: '🎯', desc: '高速重型弩矢', dmg: 26, range: 16, arc: 0, cd: 1.0, knock: 8, projectile: true, projSpeed: 26, price: { silver: 40, gold: 30 } },
   { id: 'flamesword', name: '烈焰剑', icon: '🔥', desc: '攻击点燃敌人，持续灼烧', dmg: 18, range: 1.75, arc: deg(120), cd: 0.32, knock: 6, lunge: 1.6, flame: true, price: { gold: 20, diamond: 12 } },
+  // ---- 神器武器（神器祝福获得，不在商店出售） ----
+  {
+    id: 'cupidbow', name: '丘比特的弓', icon: '💘', desc: '爱神的金弓：被射中的动物有 10% 概率坠入爱河，从此不再攻击你',
+    dmg: 16, range: 15, arc: 0, cd: 0.7, knock: 4, projectile: true, projSpeed: 20, loveChance: 0.1, artifact: true,
+  },
+  {
+    id: 'scepter', name: '阿比努斯的权杖', icon: '🪄', desc: '冥界引渡者的权杖：在施法领域内点击地面，自地底唤起冥火焚烧敌人',
+    dmg: 30, range: 8.5, arc: 0, cd: 1.1, knock: 7, cast: true, castRange: 8.5, aoeR: 1.7, artifact: true,
+  },
 ];
 
 export const WEAPON_BY_ID: Record<string, WeaponDef> = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
@@ -171,6 +185,41 @@ export const SKINS: SkinDef[] = [
 ];
 
 export const SKIN_BY_ID: Record<string, SkinDef> = Object.fromEntries(SKINS.map((s) => [s.id, s]));
+
+// ---------- 神器（神器祝福获得） ----------
+export interface ArtifactDef {
+  id: string; // 武器 id（slot=weapon）或挂件 id（slot=relic）
+  slot: 'weapon' | 'relic'; // 武器进武器栏；挂件是被动饰品（新系列）
+  name: string;
+  icon: string;
+  desc: string;
+  lore: string; // 神话出处风味文案（祝福仪式上展示）
+  color: number; // 主题色（特效与 UI）
+  css: string;
+}
+
+export const ARTIFACTS: ArtifactDef[] = [
+  {
+    id: 'cupidbow', slot: 'weapon', name: '丘比特的弓', icon: '💘',
+    desc: '爱神的金弓 —— 被金箭射中的动物有 10% 概率坠入爱河：被粉色爱心环绕，从此爱慕你、永不攻击你',
+    lore: '「被金箭命中的心，会燃起永不熄灭的爱火。」 —— 奥维德《变形记》',
+    color: 0xff8ac8, css: '#ff8ac8',
+  },
+  {
+    id: 'scepter', slot: 'weapon', name: '阿比努斯的权杖', icon: '🪄',
+    desc: '冥界引渡者的乌木权杖 —— 持杖时身周浮现施法领域，在领域内点击，自地底唤起冥火焚烧敌人',
+    lore: '「亡者之火不灼生者，除非持杖者意欲如此。」 —— 《亡灵之书》残卷',
+    color: 0x7af0c8, css: '#7af0c8',
+  },
+  {
+    id: 'wings', slot: 'relic', name: '大天使的翅膀', icon: '🕊️',
+    desc: '圣洁的羽翼挂件 —— 翻滚化作圣翼冲刺：更快、更远，并撞伤冲刺路径上的一切生物',
+    lore: '「他展开羽翼掠过大地，所过之处黑暗尽散。」 —— 《以诺书》',
+    color: 0xffe9a0, css: '#ffe9a0',
+  },
+];
+
+export const ARTIFACT_BY_ID: Record<string, ArtifactDef> = Object.fromEntries(ARTIFACTS.map((a) => [a.id, a]));
 
 // ---------- 人物天赋 ----------
 export interface TalentDef {

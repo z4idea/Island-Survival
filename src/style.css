@@ -427,3 +427,112 @@ kbd {
 .cf-upgrade .cost { float: right; color: var(--text-dim); font-size: 13px; }
 .cf-upgrade.cant .cost { color: #e06b5d; }
 .cf-upgrade.cant { opacity: 0.6; }
+
+/* ---------- 神器祝福仪式 ---------- */
+#blessing-screen {
+  z-index: 28;
+  background: radial-gradient(ellipse 80% 70% at 50% 38%, rgba(56, 48, 22, 0.55) 0%, rgba(5, 7, 12, 0.92) 70%);
+  overflow: hidden;
+}
+.blessing-rays {
+  position: absolute;
+  left: 50%; top: 36%;
+  width: 1400px; height: 1400px;
+  margin: -700px 0 0 -700px;
+  background: conic-gradient(
+    rgba(255, 246, 220, 0.14) 0deg, transparent 14deg,
+    rgba(255, 246, 220, 0.10) 32deg, transparent 47deg,
+    rgba(255, 246, 220, 0.13) 66deg, transparent 80deg,
+    rgba(255, 246, 220, 0.09) 104deg, transparent 118deg,
+    rgba(255, 246, 220, 0.14) 138deg, transparent 152deg,
+    rgba(255, 246, 220, 0.10) 176deg, transparent 190deg,
+    rgba(255, 246, 220, 0.13) 212deg, transparent 226deg,
+    rgba(255, 246, 220, 0.09) 248deg, transparent 262deg,
+    rgba(255, 246, 220, 0.14) 284deg, transparent 298deg,
+    rgba(255, 246, 220, 0.10) 320deg, transparent 334deg,
+    rgba(255, 246, 220, 0.12) 352deg, transparent 360deg
+  );
+  -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 62%);
+  mask-image: radial-gradient(circle, #000 0%, transparent 62%);
+  animation: rays-spin 26s linear infinite;
+  pointer-events: none;
+}
+@keyframes rays-spin { to { transform: rotate(360deg); } }
+
+.blessing-stage {
+  position: relative;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  animation: panel-in 0.45s ease-out;
+}
+.blessing-title {
+  font-size: 34px; font-weight: 900;
+  letter-spacing: 0.5em; margin-left: 0.5em;
+  background: linear-gradient(180deg, #fff8e0 10%, var(--gold) 55%, #a8762e 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 12px rgba(232, 200, 112, 0.45));
+}
+.blessing-sub { font-size: 11px; letter-spacing: 0.7em; margin-left: 0.7em; color: rgba(232, 228, 216, 0.55); }
+
+.blessing-halo {
+  position: relative;
+  width: 200px; height: 200px;
+  margin: 14px 0 4px;
+  display: flex; align-items: center; justify-content: center;
+}
+.halo-ring { position: absolute; border-radius: 50%; pointer-events: none; }
+.halo-ring.r1 {
+  inset: 0;
+  border: 2px dashed rgba(255, 240, 200, 0.55);
+  animation: halo-spin 9s linear infinite;
+}
+.halo-ring.r2 {
+  inset: 16px;
+  border: 1px solid rgba(255, 240, 200, 0.3);
+  animation: halo-spin 14s linear infinite reverse;
+}
+@keyframes halo-spin { to { transform: rotate(360deg); } }
+.halo-glow {
+  position: absolute; inset: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 248, 224, 0.32) 0%, transparent 70%);
+  animation: glow-breathe 2.2s ease-in-out infinite;
+}
+@keyframes glow-breathe { 50% { transform: scale(1.18); opacity: 0.75; } }
+
+#blessing-icon {
+  font-size: 86px; line-height: 1;
+  filter: drop-shadow(0 0 26px rgba(255, 240, 200, 0.85));
+}
+#blessing-icon.tick { animation: icon-tick 0.18s ease-out; }
+@keyframes icon-tick { from { transform: scale(0.78); opacity: 0.5; } }
+#blessing-screen.revealed #blessing-icon { animation: icon-reveal 0.7s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes icon-reveal {
+  0% { transform: scale(0.4); filter: brightness(3) drop-shadow(0 0 40px rgba(255, 255, 255, 0.9)); }
+  55% { transform: scale(1.35); }
+}
+#blessing-screen.revealed .halo-glow {
+  animation: glow-burst 0.7s ease-out, glow-breathe 2.2s ease-in-out 0.7s infinite;
+}
+@keyframes glow-burst { 0% { transform: scale(0.3); opacity: 1; } 100% { transform: scale(2.6); opacity: 0; } }
+
+.blessing-reveal {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  max-width: 480px;
+  min-height: 132px;
+  padding: 0 16px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.55s ease-out, transform 0.55s ease-out;
+}
+#blessing-screen.revealed .blessing-reveal { opacity: 1; transform: none; }
+#blessing-name {
+  font-size: 30px; font-weight: 900; letter-spacing: 0.18em;
+  background: linear-gradient(180deg, #fff8e0 15%, var(--gold) 60%, #b8862b 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+#blessing-kind { font-size: 12px; letter-spacing: 0.35em; color: var(--gold-dim); }
+#blessing-desc { font-size: 14px; color: var(--text); line-height: 1.8; }
+#blessing-lore { font-size: 12.5px; color: var(--text-dim); font-style: italic; line-height: 1.7; }
+#blessing-accept { margin-top: 12px; animation: accept-in 0.5s ease-out; }
+@keyframes accept-in { from { opacity: 0; transform: translateY(8px); } }

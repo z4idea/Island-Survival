@@ -8,6 +8,7 @@ import {
   type CurrencyKind, type Price, type ResKind, type WeaponDef,
 } from '../defs';
 import type { Game } from '../game';
+import type { Animal } from './animals';
 import { sfx } from '../core/audio';
 import { Statuses } from '../core/status';
 import * as hud from '../ui/hud';
@@ -22,6 +23,11 @@ export class Player {
   private weaponG = new Graphics();
   private flameG = new Graphics(); // 烈焰剑：刃上常燃的火苗
   private slashG = new Graphics();
+  private rangeG = new Graphics(); // 权杖：身周施法领域环
+  private castG = new Graphics(); // 权杖：施法落点标记
+  private wingsC = new Container(); // 大天使的翅膀（挂件）
+  private wingL = new Graphics();
+  private wingR = new Graphics();
 
   x = 0;
   y = 0;
@@ -39,6 +45,7 @@ export class Player {
   activeSkin = 'default';
   talents = new Set<string>();
   gear = new Set<string>(); // 道具（小木舟等）
+  relics = new Set<string>(); // 神器挂件（大天使的翅膀等）
   sailing = false; // 当前是否乘船
   waterT = 0; // 在水中（未乘船）的持续时间
   private drownTick = 0;
@@ -66,6 +73,12 @@ export class Player {
   private skinFxT = 0;
   private flameEmberT = 0; // 烈焰剑余烬发射间隔
   private flameAnimT = 0; // 火苗跳动相位
+  private animT = 0; // 通用动画相位（领域环脉动 / 圣翼呼吸）
+  private netherEmberT = 0; // 权杖宝珠的冥火余烬间隔
+  private castTx = 0; // 权杖施法落点（已收束到领域内）
+  private castTy = 0;
+  private dashHits = new Set<Animal>(); // 圣翼冲刺：每次冲刺对每只动物只伤害一次
+  private wingsDrawn = false;
 
   constructor(world: RAPIER.World, x: number, y: number, groups: number) {
     this.x = x;
@@ -77,9 +90,11 @@ export class Player {
       this.body,
     );
 
+    this.root.addChild(this.rangeG); // 施法领域环贴地，画在最底层
     this.shadow.ellipse(0, 6, 12, 5).fill({ color: 0x000000, alpha: 0.28 });
     this.root.addChild(this.shadow);
     this.root.addChild(this.slashG);
+    this.root.addChild(this.castG);
     // 小木舟（乘船时显示）
     this.boatG.ellipse(0, 3, 18, 10).fill(0x7a5230);
     this.boatG.ellipse(0, 3, 14, 7).fill(0x9a7048);
@@ -89,6 +104,10 @@ export class Player {
     this.boatG.visible = false;
     this.root.addChild(this.boatG);
     this.drawFigure();
+    this.wingsC.addChild(this.wingL);
+    this.wingsC.addChild(this.wingR);
+    this.wingsC.visible = false;
+    this.bodyC.addChild(this.wingsC); // 翅膀在身体之后
     this.bodyC.addChild(this.figure);
     this.bodyC.addChild(this.weaponG);
     this.bodyC.addChild(this.flameG);
@@ -112,6 +131,10 @@ export class Player {
 
   hasTalent(id: string): boolean {
     return this.talents.has(id);
+  }
+
+  hasRelic(id: string): boolean {
+    return this.relics.has(id);
   }
 
   canAfford(price: Price): boolean {
@@ -199,6 +222,81 @@ export class Player {
         g.poly([19, -2.5, 36, -1, 38, 0, 36, 1, 19, 2.5]).fill(blade(0xff8a3a)); // 烈焰刃
         g.poly([21, -2, 30, -1.2, 30, 1.2, 21, 2]).fill(useSkin ? skin.blade : 0xffd24a); // 焰心
         break;
+      case 'cupidbow': {
+        // 丘比特的弓：粉金弓臂 + 金色弓梢 + 心形装饰
+        const a0 = -Math.PI / 2.2;
+        const a1 = Math.PI / 2.2;
+        g.arc(22, 0, 13, a0, a1).stroke({ width: 3.5, color: blade(0xf0b8d0) });
+        g.moveTo(22 + 13 * Math.cos(a0), 13 * Math.sin(a0))
+          .lineTo(22 + 13 * Math.cos(a1), 13 * Math.sin(a1))
+          .stroke({ width: 1, color: 0xffe0ec });
+        g.circle(22 + 13 * Math.cos(a0), 13 * Math.sin(a0), 2).fill(accent(0xe8c870));
+        g.circle(22 + 13 * Math.cos(a1), 13 * Math.sin(a1), 2).fill(accent(0xe8c870));
+        g.circle(33.5, -1.4, 1.8).fill(0xff5080); // 心形（搭在弦上的爱之箭头）
+        g.circle(33.5, 1.4, 1.8).fill(0xff5080);
+        g.poly([32, -2.6, 37.5, 0, 32, 2.6]).fill(0xff5080);
+        break;
+      }
+      case 'scepter':
+        // 阿比努斯的权杖：乌木杖身 + 金质月牙托 + 冥火宝珠
+        g.rect(6, -1.4, 32, 2.8).fill(0x3a2a4a);
+        g.rect(6, -1.4, 32, 1).fill(0x4e3a66); // 杖身高光
+        g.poly([34, -4, 40, -8.5, 41, -2.5]).fill(accent(0xd8c060)); // 月牙托
+        g.poly([34, 4, 40, 8.5, 41, 2.5]).fill(accent(0xd8c060));
+        g.circle(42, 0, 7).fill({ color: 0x7af0c8, alpha: 0.18 }); // 宝珠外辉
+        g.circle(42, 0, 4.5).fill(blade(0x7af0c8)); // 冥火宝珠
+        g.circle(40.8, -1.2, 1.6).fill(0xd8fff0); // 珠内高光
+        break;
+    }
+    this.drawCastUi(wd);
+  }
+
+  /** 权杖：施法领域环与落点标记（仅手持施法武器时显示） */
+  private drawCastUi(wd: WeaponDef): void {
+    this.rangeG.clear();
+    this.castG.clear();
+    this.rangeG.visible = !!wd.cast;
+    this.castG.visible = !!wd.cast;
+    if (!wd.cast) return;
+    const r = (wd.castRange ?? 8) * SCALE;
+    // 虚线领域环 + 朦胧外圈
+    const SEG = 40;
+    for (let i = 0; i < SEG; i++) {
+      const a0 = (i / SEG) * Math.PI * 2;
+      const a1 = a0 + ((Math.PI * 2) / SEG) * 0.55;
+      this.rangeG.moveTo(Math.cos(a0) * r, Math.sin(a0) * r).arc(0, 0, r, a0, a1)
+        .stroke({ width: 2, color: 0x7af0c8, alpha: 0.5 });
+    }
+    this.rangeG.circle(0, 0, r).stroke({ width: 10, color: 0x7af0c8, alpha: 0.05 });
+    // 落点标记：圆环 + 中心点 + 四向刻度
+    this.castG.circle(0, 0, 9).stroke({ width: 2, color: 0x7af0c8, alpha: 0.9 });
+    this.castG.circle(0, 0, 2.2).fill({ color: 0x7af0c8, alpha: 0.9 });
+    for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      this.castG.moveTo(Math.cos(a) * 12, Math.sin(a) * 12)
+        .lineTo(Math.cos(a) * 17, Math.sin(a) * 17)
+        .stroke({ width: 2, color: 0x7af0c8, alpha: 0.7 });
+    }
+  }
+
+  /** 大天使的翅膀（挂件）：左右翼形，拥有后常驻背后 */
+  private drawWings(): void {
+    for (const [g, s] of [[this.wingR, 1], [this.wingL, -1]] as [Graphics, number][]) {
+      g.clear();
+      // 主翼面（白羽，向斜上展开）
+      g.moveTo(0, 0)
+        .quadraticCurveTo(10 * s, -14, 30 * s, -13)
+        .quadraticCurveTo(22 * s, -6, 19 * s, -1)
+        .quadraticCurveTo(10 * s, 4, 0, 2)
+        .closePath()
+        .fill(0xfdf8ec);
+      // 分层羽片
+      g.ellipse(26 * s, -10, 5, 2.4).fill(0xfffdf4);
+      g.ellipse(20 * s, -4, 4.5, 2.2).fill(0xf6ecd6);
+      g.ellipse(13 * s, 0, 4, 2).fill(0xf6ecd6);
+      g.moveTo(4 * s, -3).quadraticCurveTo(14 * s, -9, 26 * s, -11).stroke({ width: 1.5, color: 0xe8d8b0 });
+      // 金色描边（神性轮廓）
+      g.moveTo(0, 0).quadraticCurveTo(10 * s, -14, 30 * s, -13).stroke({ width: 1.5, color: 0xe8c870, alpha: 0.9 });
+      g.position.set(s * 3, -6);
     }
   }
 
@@ -216,6 +314,7 @@ export class Player {
     this.iframes -= dt;
     this.stamDelay -= dt;
     this.eatCd -= dt;
+    this.animT += dt;
 
     // 同步上一帧物理位置
     const t = this.body.translation();
@@ -225,6 +324,24 @@ export class Player {
     // 瞄准
     const mw = game.screenToWorld(input.mouseX, input.mouseY);
     this.aim = Math.atan2(mw.y - this.y, mw.x - this.x);
+
+    // 权杖：施法落点（超出领域则收束到边缘），并驱动领域环/落点指示
+    if (this.weapon.cast) {
+      const cr = this.weapon.castRange ?? 8;
+      let cdx = mw.x - this.x;
+      let cdy = mw.y - this.y;
+      const cl = Math.hypot(cdx, cdy);
+      if (cl > cr) {
+        cdx = (cdx / cl) * cr;
+        cdy = (cdy / cl) * cr;
+      }
+      this.castTx = this.x + cdx;
+      this.castTy = this.y + cdy;
+      this.rangeG.alpha = 0.55 + Math.sin(this.animT * 2.5) * 0.25;
+      this.castG.position.set(cdx * SCALE, cdy * SCALE);
+      this.castG.rotation = this.animT * 1.5;
+      this.castG.alpha = this.cd > 0 ? 0.25 : 0.9; // 冷却中变暗
+    }
 
     // 移动输入
     let mx = 0;
@@ -254,7 +371,8 @@ export class Player {
       this.dashT <= 0 &&
       this.stam >= PLAYER.dashCost
     ) {
-      this.dashT = PLAYER.dashTime;
+      const wings = this.relics.has('wings'); // 大天使的翅膀：翻滚变为圣翼冲刺
+      this.dashT = wings ? 0.24 : PLAYER.dashTime;
       if (ml > 0) {
         this.dashDx = mx;
         this.dashDy = my;
@@ -264,9 +382,15 @@ export class Player {
       }
       this.stam -= PLAYER.dashCost;
       this.stamDelay = 0.55;
-      this.iframes = Math.max(this.iframes, PLAYER.dashIFrames);
-      sfx.dash();
-      game.particles.burst(this.x, this.y, { color: 0xd8d0b8, count: 7, speed: 2, life: 0.4, size: 3, alpha: 0.7 });
+      this.iframes = Math.max(this.iframes, wings ? 0.42 : PLAYER.dashIFrames);
+      this.dashHits.clear();
+      if (wings) {
+        sfx.wing();
+        game.particles.burst(this.x, this.y, { color: 0xfff6dc, count: 10, speed: 2.5, life: 0.5, size: 3, alpha: 0.9 });
+      } else {
+        sfx.dash();
+        game.particles.burst(this.x, this.y, { color: 0xd8d0b8, count: 7, speed: 2, life: 0.4, size: 3, alpha: 0.7 });
+      }
     }
 
     // 速度
@@ -286,8 +410,32 @@ export class Player {
     let vy: number;
     if (this.dashT > 0) {
       this.dashT -= dt;
-      vx = this.dashDx * PLAYER.dashSpeed;
-      vy = this.dashDy * PLAYER.dashSpeed;
+      const wings = this.relics.has('wings');
+      const dSpeed = wings ? 15 : PLAYER.dashSpeed;
+      vx = this.dashDx * dSpeed;
+      vy = this.dashDy * dSpeed;
+      if (wings) {
+        // 圣翼冲刺：羽光尾迹 + 撞伤路径上的生物（每只一次）
+        game.particles.burst(this.x - this.dashDx * 0.3, this.y - this.dashDy * 0.3, {
+          color: Math.random() < 0.5 ? 0xfffdf4 : 0xffe9a0, count: 2, speed: 1.2, life: 0.45, size: 2.5, alpha: 0.9,
+        });
+        for (const an of game.animals) {
+          if (an.dead || an.latched || an.def.meleeImmune || this.dashHits.has(an)) continue;
+          if (Math.hypot(an.x - this.x, an.y - this.y) < an.def.radius + 0.85) {
+            this.dashHits.add(an);
+            const kd = Math.atan2(an.y - this.y, an.x - this.x);
+            an.damage(
+              24 * this.dmgMul,
+              Math.cos(kd) * 9 + this.dashDx * 4,
+              Math.sin(kd) * 9 + this.dashDy * 4,
+              game,
+            );
+            game.particles.burst(an.x, an.y, { color: 0xfff0c0, count: 8, speed: 3, life: 0.4, size: 3 });
+            game.hitstop(0.025);
+            sfx.hit();
+          }
+        }
+      }
     } else {
       const rainMul = game.inCave !== null ? 1 : 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%（洞内不受雨影响）
       const sp =
@@ -354,7 +502,7 @@ export class Player {
     if (this.stamDelay <= 0) this.stam = Math.min(this.maxStam, this.stam + PLAYER.staminaRegen * dt);
 
     // 武器切换（数字键对应已拥有武器列表）
-    for (let i = 0; i < this.weapons.length && i < 8; i++) {
+    for (let i = 0; i < this.weapons.length && i < 9; i++) {
       if (input.wasPressed(`Digit${i + 1}`) && this.weaponIdx !== i) {
         this.weaponIdx = i;
         this.drawWeapon();
@@ -449,6 +597,22 @@ export class Player {
       }
     }
 
+    // 权杖：宝珠飘出幽绿冥火余烬
+    if (this.weapon.cast) {
+      this.netherEmberT -= dt;
+      if (this.netherEmberT <= 0) {
+        this.netherEmberT = 0.16;
+        game.particles.burst(
+          this.x + Math.cos(this.aim) * 1.3,
+          this.y + Math.sin(this.aim) * 1.3 - 0.15,
+          {
+            color: Math.random() < 0.5 ? 0x7af0c8 : 0x4ae0a0,
+            count: 1, speed: 0.6, life: 0.45, size: 2, alpha: 0.85,
+          },
+        );
+      }
+    }
+
     // 皮肤待机微光
     this.skinFxT -= dt;
     if (this.skinFxT <= 0) {
@@ -477,7 +641,7 @@ export class Player {
     // 皮肤粒子光效
     const skin = SKIN_BY_ID[this.activeSkin];
     if (skin?.fx) {
-      const fxR = wd.projectile ? 0.8 : wd.range * 0.6;
+      const fxR = wd.projectile || wd.cast ? 0.8 : wd.range * 0.6;
       const fx = skin.fx;
       const tx = this.x + Math.cos(this.aim) * fxR;
       const ty = this.y + Math.sin(this.aim) * fxR;
@@ -486,7 +650,11 @@ export class Player {
         game.particles.burst(tx, ty, { color: fx.color2, count: Math.ceil(fx.count / 2), speed: 1.6, life: 0.55, size: 2 });
       }
     }
-    if (wd.projectile) {
+    if (wd.cast) {
+      // 阿比努斯的权杖：在落点召唤冥火
+      game.castNetherFire(this.castTx, this.castTy, this.weaponDmg(wd), wd.aoeR ?? 1.6, wd.knock);
+      sfx.nether();
+    } else if (wd.projectile) {
       game.projectiles.fire(
         this.x + Math.cos(this.aim) * 0.5,
         this.y + Math.sin(this.aim) * 0.5,
@@ -494,6 +662,7 @@ export class Player {
         wd.projSpeed ?? 17,
         this.weaponDmg(wd),
         wd.knock,
+        wd.loveChance ?? 0, // 丘比特的弓：爱心箭
       );
       sfx.bow();
     } else {
@@ -614,11 +783,35 @@ export class Player {
     this.bodyC.y = this.sailing ? -3 + Math.sin(this.bobT) * 1.2 : -bob;
     this.bodyC.scale.y = 1 - (this.moving ? Math.abs(Math.cos(this.bobT)) * 0.05 : 0);
 
-    // 翻滚时旋转身体
-    if (this.dashT > 0) {
+    // 翻滚时旋转身体（圣翼冲刺是滑翔，不翻滚）
+    const hasWings = this.relics.has('wings');
+    if (this.dashT > 0 && !hasWings) {
       this.bodyC.rotation += dt * 22 * (this.dashDx >= 0 ? 1 : -1);
     } else {
       this.bodyC.rotation = 0;
+    }
+
+    // 大天使的翅膀：常驻折叠微颤，冲刺时展开扇动
+    if (hasWings) {
+      if (!this.wingsDrawn) {
+        this.wingsDrawn = true;
+        this.drawWings();
+      }
+      this.wingsC.visible = true;
+      if (this.dashT > 0) {
+        const flap = Math.sin(this.animT * 26) * 0.35;
+        this.wingsC.scale.set(1.25);
+        this.wingsC.alpha = 1;
+        this.wingL.rotation = -0.25 - flap;
+        this.wingR.rotation = 0.25 + flap;
+      } else {
+        this.wingsC.scale.set(0.55 + Math.sin(this.animT * 2.2) * 0.04);
+        this.wingsC.alpha = 0.85;
+        this.wingL.rotation = -0.5;
+        this.wingR.rotation = 0.5;
+      }
+    } else {
+      this.wingsC.visible = false;
     }
 
     // 武器朝向 + 挥舞动画

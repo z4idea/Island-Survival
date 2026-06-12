@@ -854,7 +854,7 @@ export class Game {
     }
 
     if (nearCf) {
-      hud.showPrompt('<kbd>E</kbd> 篝火 — 休息 · 保存 · 强化');
+      hud.showPrompt('<kbd>E</kbd> 篝火 — 保存 · 强化 · 商店');
     } else if (nearCave) {
       hud.showPrompt('<kbd>E</kbd> 进入洞穴');
     } else if (nearBush) {
@@ -1289,15 +1289,11 @@ export class Game {
     }
     const p = this.player;
     if (action === 'rest') {
+      // 只保存进度，不再恢复生命/耐力（回血靠进食、嗜血天赋与升级）
       if (this.activeCampfire) this.campfireId = this.activeCampfire.id;
-      p.hp = p.maxHp;
-      p.stam = p.maxStam;
-      this.regenerateAnimals();
-      this.bossWarned = false;
       this.saveNow();
       sfx.save();
-      hud.toast('💾 已保存 — 篝火旁很安全，但野兽们回来了');
-      hud.setHp(p.hp, p.maxHp);
+      hud.toast('💾 进度已保存 — 复活点设在这处篝火');
       hud.updateCampfireMenu(p);
       return;
     }

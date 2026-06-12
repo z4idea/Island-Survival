@@ -58,9 +58,9 @@ export class Projectiles {
       a.sprite.position.set(a.x * SCALE, a.y * SCALE);
 
       let hit = false;
-      // 命中动物
+      // 命中动物（吸附在玩家头上的蝙蝠射不到）
       for (const an of game.animals) {
-        if (an.dead) continue;
+        if (an.dead || an.latched) continue;
         const d = Math.hypot(an.x - a.x, an.y - a.y);
         if (d < an.def.radius + 0.22) {
           const dir = Math.atan2(a.vy, a.vx);

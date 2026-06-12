@@ -9,6 +9,7 @@ import {
 } from '../defs';
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
+import { Statuses } from '../core/status';
 import * as hud from '../ui/hud';
 
 export class Player {
@@ -58,8 +59,10 @@ export class Player {
   private moving = false;
   private bobT = 0;
   private eatCd = 0;
-  private poisonT = 0; // 中毒剩余时间
+  statuses = new Statuses(); // 中毒 / 流血 / 魅惑 / 溺水
+  private statusKey = '';
   private poisonFloatT = 0;
+  private skinFxT = 0;
 
   constructor(world: RAPIER.World, x: number, y: number, groups: number) {
     this.x = x;
@@ -231,6 +234,14 @@ export class Player {
       mx /= ml;
       my /= ml;
     }
+    // 魅惑：移动方向颠倒
+    if (this.statuses.has('charm')) {
+      mx = -mx;
+      my = -my;
+      if (Math.random() < dt * 6) {
+        game.particles.burst(this.x, this.y - 0.7, { color: 0xff8ac8, count: 1, speed: 1, life: 0.5, size: 2, alpha: 0.8 });
+      }
+    }
     this.moving = ml > 0;
 
     // 翻滚闪避
@@ -290,6 +301,7 @@ export class Player {
       }
       this.waterT += dt;
       if (this.waterT > 5) {
+        this.statuses.add('drown', 0.4); // 维持型状态：驱动 HUD 图标
         this.drownTick -= dt;
         if (this.drownTick <= 0) {
           this.drownTick = 1;
@@ -357,7 +369,7 @@ export class Player {
       input.wasPressed('KeyQ') &&
       this.eatCd <= 0 &&
       this.res.berry > 0 &&
-      (this.hp < this.maxHp || this.poisonT > 0)
+      (this.hp < this.maxHp || this.statuses.has('poison'))
     ) {
       this.res.berry--;
       this.heal(6, game);
@@ -370,7 +382,7 @@ export class Player {
       input.wasPressed('KeyF') &&
       this.eatCd <= 0 &&
       this.res.meat > 0 &&
-      (this.hp < this.maxHp || this.poisonT > 0)
+      (this.hp < this.maxHp || this.statuses.has('poison'))
     ) {
       this.res.meat--;
       this.heal(14, game);
@@ -381,8 +393,7 @@ export class Player {
     }
 
     // 中毒持续掉血（无视无敌帧，可被进食解除）
-    if (this.poisonT > 0) {
-      this.poisonT -= dt;
+    if (this.statuses.has('poison')) {
       this.hp -= 3 * dt;
       this.poisonFloatT -= dt;
       if (this.poisonFloatT <= 0) {
@@ -390,12 +401,38 @@ export class Player {
         game.floats.show(this.x, this.y - 0.6, '-3', 0x8fd84a, 13);
         game.particles.burst(this.x, this.y - 0.3, { color: 0x8fd84a, count: 3, speed: 1.2, life: 0.5, size: 2 });
       }
-      if (this.poisonT <= 0) this.curePoison(game);
       if (this.hp <= 0) {
         this.hp = 0;
         this.dead = true;
-        hud.setPoison(false);
         game.onPlayerDeath();
+        return;
+      }
+    }
+
+    // 状态倒计时与到期处理 + HUD 图标同步
+    const expired = this.statuses.update(dt);
+    if (expired.includes('poison')) this.figure.tint = 0xffffff;
+    if (expired.includes('charm')) game.floats.show(this.x, this.y - 0.6, '清醒了', 0xcfe8cf, 12);
+    const key = this.statuses.list().join(',');
+    if (key !== this.statusKey) {
+      this.statusKey = key;
+      hud.setStatuses(this.statuses.list());
+    }
+
+    // 皮肤待机微光
+    this.skinFxT -= dt;
+    if (this.skinFxT <= 0) {
+      this.skinFxT = 0.45;
+      const skin = SKIN_BY_ID[this.activeSkin];
+      if (skin?.fx) {
+        game.particles.burst(
+          this.x + Math.cos(this.aim) * 0.75,
+          this.y + Math.sin(this.aim) * 0.75 - 0.2,
+          {
+            color: Math.random() < 0.5 ? skin.fx.color : skin.fx.color2 ?? skin.fx.color,
+            count: 1, speed: 0.5, life: 0.6, size: 1.8, alpha: 0.8,
+          },
+        );
       }
     }
 
@@ -407,6 +444,18 @@ export class Player {
     this.cd = wd.cd;
     this.swingT = 0;
     this.swingDir *= -1;
+    // 皮肤粒子光效
+    const skin = SKIN_BY_ID[this.activeSkin];
+    if (skin?.fx) {
+      const fxR = wd.projectile ? 0.8 : wd.range * 0.6;
+      const fx = skin.fx;
+      const tx = this.x + Math.cos(this.aim) * fxR;
+      const ty = this.y + Math.sin(this.aim) * fxR;
+      game.particles.burst(tx, ty, { color: fx.color, count: fx.count, speed: 2.4, life: 0.45, size: 2.5, alpha: 0.9 });
+      if (fx.color2) {
+        game.particles.burst(tx, ty, { color: fx.color2, count: Math.ceil(fx.count / 2), speed: 1.6, life: 0.55, size: 2 });
+      }
+    }
     if (wd.projectile) {
       game.projectiles.fire(
         this.x + Math.cos(this.aim) * 0.5,
@@ -458,24 +507,52 @@ export class Player {
     game.particles.burst(this.x, this.y - 0.3, { color: 0x8fe88a, count: 6, speed: 1.5, life: 0.5, size: 2.5 });
   }
 
-  /** 中毒：持续掉血，进食可解。返回值无；叠加时取剩余时间更长者 */
+  /** 中毒：持续掉血，进食可解；叠加时取剩余时间更长者 */
   applyPoison(duration: number, game: Game): void {
     if (this.dead) return;
-    if (this.poisonT <= 0) {
+    if (!this.statuses.has('poison')) {
       game.floats.show(this.x, this.y - 0.8, '中毒!', 0x8fd84a, 15);
-      hud.setPoison(true);
     }
-    this.poisonT = Math.max(this.poisonT, duration);
+    this.statuses.add('poison', duration);
     this.figure.tint = 0xb0e890;
   }
 
   curePoison(game: Game): void {
-    if (this.poisonT > 0) {
+    if (this.statuses.clear('poison')) {
       game.floats.show(this.x, this.y - 0.8, '毒解', 0xcfe8cf, 13);
     }
-    this.poisonT = 0;
     this.figure.tint = 0xffffff;
-    hud.setPoison(false);
+  }
+
+  /** 魅惑（狐狸）：移动方向颠倒一段时间 */
+  applyCharm(duration: number, game: Game): void {
+    if (this.dead) return;
+    if (!this.statuses.has('charm')) {
+      game.floats.show(this.x, this.y - 0.8, '魅惑!', 0xff8ac8, 15);
+      game.particles.burst(this.x, this.y - 0.6, { color: 0xff8ac8, count: 8, speed: 1.8, life: 0.6, size: 2.5 });
+    }
+    this.statuses.add('charm', duration);
+  }
+
+  /** 直接放血（蝙蝠吸血等）：无视无敌帧，并点亮流血状态 */
+  drainBlood(n: number, game: Game): void {
+    if (this.dead) return;
+    this.hp -= n;
+    this.statuses.add('bleed', 0.7);
+    game.floats.show(this.x, this.y - 0.7, `🩸-${n}`, 0xff5040, 14);
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.dead = true;
+      game.onPlayerDeath();
+    }
+  }
+
+  /** 清空全部状态（复活时） */
+  clearStatuses(): void {
+    this.statuses.clearAll();
+    this.figure.tint = 0xffffff;
+    this.statusKey = '';
+    hud.setStatuses([]);
   }
 
   /** 返回 true 表示伤害实际生效（未被无敌帧挡掉） */

@@ -80,6 +80,7 @@ export const COIN_TABLE: Record<AnimalKind, { gold: number; diamond: number }> =
   turtle: { gold: 0.1, diamond: 0.015 },
   shark: { gold: 0.22, diamond: 0.05 },
   bat: { gold: 0.08, diamond: 0.02 },
+  fox: { gold: 0.2, diamond: 0.05 },
 };
 
 // ---------- 道具（商店） ----------
@@ -154,15 +155,19 @@ export interface SkinDef {
   blade: number; // 刃部颜色
   accent: number; // 描边/配件颜色
   slash: number; // 挥砍残影颜色
+  fx?: { color: number; color2?: number; count: number }; // 粒子光效（挥击迸发 + 待机微光）
   price?: Price; // 无价格 = 初始拥有
 }
 
 export const SKINS: SkinDef[] = [
   { id: 'default', name: '原色', desc: '朴实的本来面目', blade: 0, accent: 0, slash: 0xffffff },
-  { id: 'gilded', name: '鎏金', desc: '金光流转，富贵逼人', blade: 0xffd87a, accent: 0xb8862b, slash: 0xffe9a0, price: { gold: 15 } },
-  { id: 'jade', name: '翡翠', desc: '温润碧色', blade: 0x7ee8a0, accent: 0x2e8b57, slash: 0xa0ffc0, price: { gold: 15 } },
-  { id: 'crimson', name: '血色', desc: '饮血之刃', blade: 0xff6b5d, accent: 0x8b1a10, slash: 0xff9a8a, price: { silver: 30, gold: 12 } },
-  { id: 'ice', name: '寒冰', desc: '凛冬将至', blade: 0xa8e0ff, accent: 0x4682b4, slash: 0xd0f0ff, price: { diamond: 6 } },
+  { id: 'gilded', name: '鎏金', desc: '金光流转，富贵逼人', blade: 0xffd87a, accent: 0xb8862b, slash: 0xffe9a0, fx: { color: 0xffe9a0, count: 3 }, price: { gold: 15 } },
+  { id: 'jade', name: '翡翠', desc: '温润碧色', blade: 0x7ee8a0, accent: 0x2e8b57, slash: 0xa0ffc0, fx: { color: 0x8fe8a8, count: 3 }, price: { gold: 15 } },
+  { id: 'crimson', name: '血色', desc: '饮血之刃', blade: 0xff6b5d, accent: 0x8b1a10, slash: 0xff9a8a, fx: { color: 0xff7a6b, count: 3 }, price: { silver: 30, gold: 12 } },
+  { id: 'ice', name: '寒冰', desc: '凛冬将至', blade: 0xa8e0ff, accent: 0x4682b4, slash: 0xd0f0ff, fx: { color: 0xc8ecff, color2: 0x6ec6e0, count: 4 }, price: { diamond: 6 } },
+  { id: 'starlight', name: '星辉', desc: '缀满星尘的传说之刃', blade: 0xfff8d8, accent: 0xb8a8ff, slash: 0xfff0c0, fx: { color: 0xfff0a0, color2: 0xb8a8ff, count: 6 }, price: { diamond: 15 } },
+  { id: 'void', name: '幽冥', desc: '深渊的低语缠绕刀锋', blade: 0x6a4a9a, accent: 0x2a1a4a, slash: 0xb08aff, fx: { color: 0x8a5aff, color2: 0x3a2a6a, count: 5 }, price: { gold: 30, diamond: 8 } },
+  { id: 'thunder', name: '雷光', desc: '裂空之雷，余响不绝', blade: 0xfff8b0, accent: 0x4a8ae0, slash: 0xd8f0ff, fx: { color: 0xffe860, color2: 0x8ad8ff, count: 6 }, price: { gold: 40, diamond: 10 } },
 ];
 
 export const SKIN_BY_ID: Record<string, SkinDef> = Object.fromEntries(SKINS.map((s) => [s.id, s]));
@@ -189,7 +194,7 @@ export const TALENT_BY_ID: Record<string, TalentDef> = Object.fromEntries(TALENT
 // ---------- 动物 ----------
 export type AnimalKind =
   | 'crab' | 'boar' | 'wolf' | 'deer' | 'bear' | 'snake' | 'goat' | 'gull'
-  | 'tiger' | 'fish' | 'turtle' | 'shark' | 'bat';
+  | 'tiger' | 'fish' | 'turtle' | 'shark' | 'bat' | 'fox';
 
 export interface AnimalDef {
   kind: AnimalKind;
@@ -208,9 +213,12 @@ export interface AnimalDef {
   chargeMin?: number; // 触发冲锋的最近距离（默认 3）
   chargeMax?: number; // 触发冲锋的最远距离（默认 7，Boss 9）
   poison?: boolean; // 攻击附带中毒（蛇）
+  charm?: boolean; // 攻击附带魅惑：移动反向（狐狸）
   retaliate?: boolean; // 中立，受击才反击（山羊 / 海龟）
-  flying?: boolean; // 飞行：无碰撞、可越过水面（海鸥）
+  flying?: boolean; // 飞行：无碰撞、可越过水面（海鸥 / 蝙蝠）
   marine?: boolean; // 海洋动物：AI 限制在水中活动
+  latcher?: boolean; // 吸附吸血（蝙蝠）：贴近后挂在玩家头上持续掉血
+  meleeImmune?: boolean; // 近战打不到（飞得太高），只能用弓弩
   boss?: boolean;
   drops: Partial<Record<ResKind, number>>;
   color: number;
@@ -270,8 +278,17 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     atkCd: 0, radius: 0.28, flee: true, flying: true, drops: { meat: 1 }, color: 0xf0f0ea,
   },
   bat: {
-    kind: 'bat', name: '洞穴蝙蝠', hp: 18, dmg: 7, speed: 4.8, aggroR: 7, atkR: 0.9,
-    atkCd: 1.0, radius: 0.3, drops: { hide: 1 }, color: 0x6a5a7a,
+    // 吸血蝙蝠：飞行极快，贴身后挂在头上吸血（共 20 点后消失，可叠加）。
+    // 近战打不到，唯一反制是在被发现前用弓弩射杀（30 血 ≈ 短弓 3 箭）。
+    kind: 'bat', name: '吸血蝙蝠', hp: 30, dmg: 0, speed: 8, aggroR: 8.5, atkR: 0,
+    atkCd: 0, radius: 0.3, flying: true, latcher: true, meleeImmune: true,
+    drops: { hide: 1 }, color: 0x6a5a7a,
+  },
+  fox: {
+    // 妖狐：洞穴猎手，属性近似猛虎，攻击附带魅惑（WASD 反向）
+    kind: 'fox', name: '妖狐', hp: 100, dmg: 16, speed: 5.0, aggroR: 7.5, atkR: 1.15,
+    atkCd: 1.4, radius: 0.45, charge: true, chargeSpeed: 10.5, chargeDur: 0.4, chargeMin: 2, chargeMax: 5.5,
+    charm: true, drops: { meat: 2, hide: 2 }, color: 0xd9743a,
   },
 };
 

@@ -7,7 +7,7 @@ import { ANIMALS, COIN_TABLE, GROUPS, SCALE, Tile, type AnimalDef, type AnimalKi
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
 
-type State = 'idle' | 'wander' | 'chase' | 'windup' | 'charge' | 'flee' | 'dying';
+type State = 'idle' | 'wander' | 'chase' | 'windup' | 'charge' | 'flee' | 'latch' | 'dying';
 
 export class Animal {
   def: AnimalDef;
@@ -25,6 +25,8 @@ export class Animal {
   spawnIdx: number;
   burnT = 0; // 灼烧剩余时间（烈焰剑）
   private burnFxT = 0;
+  private drainBudget = 20; // 吸血蝙蝠：吸满 20 点后消失
+  private drainTickT = 0;
 
   private state: State = 'idle';
   private stateT = 0;
@@ -210,6 +212,23 @@ export class Animal {
         g.moveTo(12, 3).quadraticCurveTo(16, 5, 19, 3).stroke({ width: 1.5, color: 0x4a5a66 }); // 嘴
         break;
       }
+      case 'fox': {
+        g.ellipse(-1, 0, 15, 9).fill(c);
+        g.ellipse(2, 3, 8, 4).fill(0xf0e0d0); // 白色胸腹
+        g.circle(12, -2, 6.5).fill(c); // 头
+        g.poly([8, -7, 10, -14, 14, -7]).fill(c); // 大尖耳
+        g.poly([14, -7, 18, -13, 19, -6]).fill(c);
+        g.poly([9.5, -10, 10.5, -13, 12.5, -9]).fill(0x3a2a1a); // 耳内
+        g.poly([16, -6, 22, -3, 16, -1]).fill(0xf0e0d0); // 尖吻
+        g.circle(21, -2.5, 1).fill(0x2a1a10); // 鼻头
+        g.circle(13, -4, 1.6).fill(0x8ad84a); // 绿瞳
+        g.circle(16.5, -4, 1.6).fill(0x8ad84a);
+        // 蓬松大尾巴（白尖）
+        g.moveTo(-14, 0).quadraticCurveTo(-24, -6, -29, 1).quadraticCurveTo(-25, 5, -17, 4)
+          .closePath().fill(c);
+        g.circle(-27, 1, 3).fill(0xf0e0d0);
+        break;
+      }
       case 'bat': {
         g.ellipse(0, 0, 6, 8).fill(c); // 身体
         g.poly([-3, -2, -16, -8, -14, 2, -4, 3]).fill(0x4a3e58); // 左翼
@@ -344,6 +363,14 @@ export class Animal {
           this.setState('wander');
           break;
         }
+        // 吸血蝙蝠：贴近后挂到玩家头上
+        if (this.def.latcher && dist < 0.6) {
+          this.setState('latch');
+          this.drainTickT = 0.6; // 咬住后稍顿再开始吸
+          game.floats.show(p.x, p.y - 1, '蝙蝠咬住了你!', 0xff5040, 14);
+          sfx.hurt();
+          break;
+        }
         // 冲锋 / 突袭
         const cMin = this.def.chargeMin ?? 3;
         const cMax = this.def.chargeMax ?? (this.def.boss ? 9 : 7);
@@ -383,6 +410,7 @@ export class Animal {
             if (dist < hitR && !p.dead) {
               const landed = p.takeDamage(this.def.dmg, (dx / (dist || 1)) * 7, (dy / (dist || 1)) * 7, game);
               if (landed && this.def.poison) p.applyPoison(4, game);
+              if (landed && this.def.charm) p.applyCharm(3, game);
             }
             this.setState('chase');
           }
@@ -398,6 +426,7 @@ export class Animal {
         if (dist < this.def.radius + 0.55 && !p.dead) {
           const landed = p.takeDamage(this.def.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
           if (landed && this.def.poison) p.applyPoison(4, game);
+          if (landed && this.def.charm) p.applyCharm(3, game);
           this.setState('chase');
           break;
         }
@@ -406,6 +435,30 @@ export class Animal {
           : !game.worldData.isWalkable(this.x + this.chargeDx, this.y + this.chargeDy);
         if (this.stateT >= dur || aheadBlocked) {
           this.setState('chase');
+        }
+        break;
+      }
+      case 'latch': {
+        // 挂在玩家头顶持续吸血；吸满额度后消失
+        if (p.dead) {
+          this.unlatch(game);
+          break;
+        }
+        this.body.setTranslation(
+          { x: p.x + Math.sin(this.stateT * 7) * 0.18, y: p.y - 0.55 },
+          true,
+        );
+        this.drainTickT -= dt;
+        if (this.drainTickT <= 0) {
+          this.drainTickT = 1;
+          const drain = Math.min(4, this.drainBudget);
+          p.drainBlood(drain, game);
+          this.drainBudget -= drain;
+          game.particles.burst(p.x, p.y - 0.6, { color: 0xff5040, count: 3, speed: 1.5, life: 0.4, size: 2 });
+          if (this.drainBudget <= 0) {
+            this.vanish(game);
+            return;
+          }
         }
         break;
       }
@@ -472,7 +525,39 @@ export class Animal {
     }
 
     this.root.position.set(this.x * SCALE, this.y * SCALE);
-    this.root.zIndex = this.y;
+    // 吸附中的蝙蝠画在玩家之上
+    this.root.zIndex = this.state === 'latch' ? this.y + 2 : this.y;
+  }
+
+  /** 是否正吸附在玩家身上（吸附中无法被攻击） */
+  get latched(): boolean {
+    return this.state === 'latch';
+  }
+
+  /** 强制脱离吸附（玩家进出洞穴 / 死亡时） */
+  unlatch(game: Game): void {
+    if (this.state !== 'latch' || !this.body) return;
+    this.aggro = false;
+    this.setState('wander');
+    this.body.setTranslation({ x: this.home.x, y: this.home.y }, true);
+    this.x = this.home.x;
+    this.y = this.home.y;
+    void game;
+  }
+
+  /** 吸饱后消失：不掉落，记录重生 */
+  private vanish(game: Game): void {
+    this.dead = true;
+    this.setState('dying');
+    this.dieT = 0.4;
+    this.alertG.clear();
+    this.hpBar.visible = false;
+    if (this.body) {
+      game.physWorld.removeRigidBody(this.body);
+      this.body = null;
+    }
+    game.particles.burst(this.x, this.y, { color: 0x6a5a7a, count: 8, speed: 2, life: 0.4, size: 2.5, alpha: 0.8 });
+    game.onAnimalKilled(this);
   }
 
   private drawAlert(t: number): void {

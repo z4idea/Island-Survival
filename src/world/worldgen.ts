@@ -248,11 +248,11 @@ export function generateWorld(seed: number): WorldData {
   // ---- 动物分布（陆地按连通域，海洋生物在浅水） ----
   const caps: Record<AnimalKind, number> = {
     crab: 50, boar: 44, deer: 34, wolf: 46, bear: 1, snake: 32, goat: 20, gull: 26,
-    tiger: 12, fish: 32, turtle: 14, shark: 16, bat: 0, // 蝙蝠只在洞穴内（game.ts 生成）
+    tiger: 12, fish: 32, turtle: 14, shark: 16, bat: 0, fox: 0, // 蝙蝠/妖狐只在洞穴内（game.ts 生成）
   };
   const counts: Record<AnimalKind, number> = {
     crab: 0, boar: 0, deer: 0, wolf: 0, bear: 0, snake: 0, goat: 0, gull: 0,
-    tiger: 0, fish: 0, turtle: 0, shark: 0, bat: 0,
+    tiger: 0, fish: 0, turtle: 0, shark: 0, bat: 0, fox: 0,
   };
   const start = w.campfires[0] ?? { x: main.x, y: main.y };
   for (let y = 2; y < MAP - 2; y++) {

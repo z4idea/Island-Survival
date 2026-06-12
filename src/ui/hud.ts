@@ -5,6 +5,7 @@ import {
   CURRENCY, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
   type CurrencyKind, type Price, type ResKind,
 } from '../defs';
+import { STATUS_INFO, type StatusKind } from '../core/status';
 import type { WorldData } from '../world/worldgen';
 import type { Player } from '../entities/player';
 
@@ -40,8 +41,11 @@ export function bumpRes(kind: ResKind, value: number): void {
   parent.classList.add('bump');
 }
 
-export function setPoison(on: boolean): void {
-  $('poison-icon').classList.toggle('hidden', !on);
+/** 状态效果图标行（中毒/流血/魅惑/溺水…） */
+export function setStatuses(kinds: StatusKind[]): void {
+  $('status-icons').innerHTML = kinds
+    .map((k) => `<span class="status-icon" title="${STATUS_INFO[k].name}">${STATUS_INFO[k].icon}</span>`)
+    .join('');
 }
 
 // ---------- 货币 ----------

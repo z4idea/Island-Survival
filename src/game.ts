@@ -70,6 +70,8 @@ interface CaveDef {
   cells: Uint8Array; // 1 = 可行走地面
   exitX: number; // 内部出口（世界坐标）
   exitY: number;
+  treasure: boolean; // 宝藏洞穴：无动物、宝箱更多更肥（低概率）
+  carved: number; // 洞窟实际大小（决定宝箱数量）
 }
 
 interface CaveChest {
@@ -108,7 +110,7 @@ export class Game {
   inCave: number | null = null;
   private caveChests: CaveChest[] = [];
   private openedChests = new Set<number>();
-  private caveBatSpawns: { x: number; y: number }[] = [];
+  private caveAnimalSpawns: { kind: string; x: number; y: number }[] = [];
 
   // 天气：晴 / 雨（雨天玩家移速降低）
   private weather: 'clear' | 'rain' = 'clear';
@@ -218,8 +220,8 @@ export class Game {
 
     // 动物
     this.spawnRecords = this.worldData.spawns.map((s) => ({ kind: s.kind, x: s.x, y: s.y, animal: null, deadAt: -999 }));
-    for (const b of this.caveBatSpawns) {
-      this.spawnRecords.push({ kind: 'bat', x: b.x, y: b.y, animal: null, deadAt: -999 });
+    for (const b of this.caveAnimalSpawns) {
+      this.spawnRecords.push({ kind: b.kind, x: b.x, y: b.y, animal: null, deadAt: -999 });
     }
     this.spawnAllAnimals();
 
@@ -429,6 +431,10 @@ export class Game {
     picked.forEach((pos, i) => {
       const size = CAVE_SIZE;
       const cells = new Uint8Array(size * size);
+      // 宝藏洞穴（低概率）：小而无兽，宝箱密集
+      const treasure = crng() < 0.18;
+      // 洞窟大小带随机性，决定宝箱数量
+      const target = treasure ? 220 : 250 + Math.floor(crng() * 160);
       // 醉汉游走雕刻洞窟
       let cx = 15;
       let cy = 25;
@@ -437,7 +443,7 @@ export class Game {
       };
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) carve(15 + dx, 25 + dy);
       let carved = 9;
-      while (carved < 330) {
+      while (carved < target) {
         const r = crng();
         if (r < 0.34) cy--; // 向上偏置，洞窟向深处延伸
         else if (r < 0.52) cy++;
@@ -459,6 +465,7 @@ export class Game {
       const cave: CaveDef = {
         id: i, ex: pos.x, ey: pos.y, ox, oy, cells,
         exitX: ox + 15.5, exitY: oy + 25.5,
+        treasure, carved,
       };
       this.caves.push(cave);
       this.buildCaveScene(cave, crng);
@@ -494,6 +501,10 @@ export class Game {
           const c = j < 0.33 ? 0x342e28 : j < 0.66 ? base : 0x3e3630;
           g.rect(x * SCALE, y * SCALE, SCALE, SCALE).fill(c);
           if (j > 0.9) g.circle(x * SCALE + 8 + j * 14, y * SCALE + 10, 2).fill(0x2a2520);
+          // 宝藏洞穴：地面散落金砂微光
+          if (cave.treasure && j > 0.78 && j <= 0.9) {
+            g.circle(x * SCALE + 6 + j * 20, y * SCALE + 14, 1.5).fill({ color: 0xffd24a, alpha: 0.7 });
+          }
         } else if (nearFloor(x, y)) {
           // 岩壁
           g.rect(x * SCALE, y * SCALE, SCALE, SCALE).fill(0x221d19);
@@ -557,9 +568,16 @@ export class Game {
       return null;
     };
 
-    // 宝箱 ×3（随机三种货币）
-    for (let n = 0; n < 3; n++) {
-      const c = pick(n === 0 ? 12 : 7, n === 0 ? 25 : 120);
+    // 宝箱数量：宝藏洞穴 5~6 个；普通洞穴按洞窟大小 1~3 个（带随机性）
+    let chestCount: number;
+    if (cave.treasure) {
+      chestCount = 5 + Math.floor(crng() * 2);
+    } else {
+      chestCount = Math.round(cave.carved / 170) + (crng() < 0.3 ? 1 : 0) - (crng() < 0.3 ? 1 : 0);
+      chestCount = Math.max(1, Math.min(3, chestCount));
+    }
+    for (let n = 0; n < chestCount; n++) {
+      const c = pick(n === 0 ? 12 : 6, n === 0 ? 25 : 140);
       if (!c) continue;
       const id = cave.id * 100 + n;
       const chest: CaveChest = {
@@ -575,8 +593,8 @@ export class Game {
       this.caveChests.push(chest);
     }
 
-    // 水晶矿脉 ×2（敲碎掉钻石）
-    for (let n = 0; n < 2; n++) {
+    // 水晶矿脉（敲碎掉钻石）：宝藏洞穴 3 处，普通 2 处
+    for (let n = 0; n < (cave.treasure ? 3 : 2); n++) {
       const c = pick(6, 150);
       if (!c) continue;
       const id = 1_000_000 + cave.id * 100 + n;
@@ -603,10 +621,16 @@ export class Game {
       });
     }
 
-    // 蝙蝠 ×4
-    for (let n = 0; n < 4; n++) {
-      const c = pick(5, 200);
-      if (c) this.caveBatSpawns.push({ x: cave.ox + c.x + 0.5, y: cave.oy + c.y + 0.5 });
+    // 守卫（宝藏洞穴没有动物）：吸血蝙蝠 ×3 + 妖狐 ×2
+    if (!cave.treasure) {
+      for (let n = 0; n < 3; n++) {
+        const c = pick(5, 200);
+        if (c) this.caveAnimalSpawns.push({ kind: 'bat', x: cave.ox + c.x + 0.5, y: cave.oy + c.y + 0.5 });
+      }
+      for (let n = 0; n < 2; n++) {
+        const c = pick(7, 160);
+        if (c) this.caveAnimalSpawns.push({ kind: 'fox', x: cave.ox + c.x + 0.5, y: cave.oy + c.y + 0.5 });
+      }
     }
   }
 
@@ -853,6 +877,7 @@ export class Game {
   enterCave(id: number): void {
     const cave = this.caves[id];
     if (!cave) return;
+    for (const a of this.animals) if (!a.dead) a.unlatch(this);
     this.inCave = id;
     this.player.teleport(cave.exitX, cave.exitY - 0.6);
     this.camX = this.player.x;
@@ -865,6 +890,7 @@ export class Game {
 
   exitCave(): void {
     if (this.inCave === null) return;
+    for (const a of this.animals) if (!a.dead) a.unlatch(this);
     const cave = this.caves[this.inCave];
     this.inCave = null;
     this.player.teleport(cave.ex, cave.ey + 1.2);
@@ -878,10 +904,15 @@ export class Game {
     ch.opened = true;
     this.openedChests.add(ch.id);
     this.drawChest(ch.g, true);
-    // 随机三种货币
-    const silver = 10 + Math.floor(Math.random() * 15);
-    const gold = 3 + Math.floor(Math.random() * 7);
-    const diamond = Math.random() < 0.65 ? 1 + Math.floor(Math.random() * 3) : 0;
+    // 随机三种货币（宝藏洞穴更肥，钻石必出）
+    const treasure = this.caves[ch.caveId]?.treasure ?? false;
+    const silver = (treasure ? 16 : 10) + Math.floor(Math.random() * (treasure ? 16 : 15));
+    const gold = (treasure ? 6 : 3) + Math.floor(Math.random() * (treasure ? 8 : 7));
+    const diamond = treasure
+      ? 2 + Math.floor(Math.random() * 3)
+      : Math.random() < 0.65
+        ? 1 + Math.floor(Math.random() * 3)
+        : 0;
     this.drops.spawn('silver', ch.x, ch.y - 0.3, silver);
     this.drops.spawn('gold', ch.x, ch.y - 0.3, gold);
     if (diamond > 0) this.drops.spawn('diamond', ch.x, ch.y - 0.3, diamond);
@@ -1040,6 +1071,7 @@ export class Game {
     let hitAnimal = false;
     for (const a of this.animals) {
       if (a.dead) continue;
+      if (a.def.meleeImmune || a.latched) continue; // 蝙蝠飞得太高 / 已咬住玩家，近战打不到
       const dx = a.x - player.x;
       const dy = a.y - player.y;
       const dist = Math.hypot(dx, dy);
@@ -1213,7 +1245,7 @@ export class Game {
     this.player.teleport(cf.x + 1.2, cf.y + 1.2);
     this.player.hp = this.player.maxHp;
     this.player.stam = this.player.maxStam;
-    this.player.curePoison(this);
+    this.player.clearStatuses();
     this.player.dead = false;
     this.state = 'playing';
     this.deathT = -1;

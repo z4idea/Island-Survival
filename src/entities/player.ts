@@ -20,6 +20,7 @@ export class Player {
   private bodyC = new Container(); // 身体（带走路弹跳）
   private figure = new Graphics();
   private weaponG = new Graphics();
+  private flameG = new Graphics(); // 烈焰剑：刃上常燃的火苗
   private slashG = new Graphics();
 
   x = 0;
@@ -63,6 +64,8 @@ export class Player {
   private statusKey = '';
   private poisonFloatT = 0;
   private skinFxT = 0;
+  private flameEmberT = 0; // 烈焰剑余烬发射间隔
+  private flameAnimT = 0; // 火苗跳动相位
 
   constructor(world: RAPIER.World, x: number, y: number, groups: number) {
     this.x = x;
@@ -88,6 +91,7 @@ export class Player {
     this.drawFigure();
     this.bodyC.addChild(this.figure);
     this.bodyC.addChild(this.weaponG);
+    this.bodyC.addChild(this.flameG);
     this.root.addChild(this.bodyC);
     this.drawWeapon();
   }
@@ -427,6 +431,24 @@ export class Player {
       hud.setStatuses(this.statuses.list());
     }
 
+    // 烈焰剑：剑身持续冒火（与皮肤特效无关，是武器本体属性）
+    if (this.weapon.flame) {
+      this.flameEmberT -= dt;
+      if (this.flameEmberT <= 0) {
+        this.flameEmberT = 0.07;
+        const d = 0.5 + Math.random() * 0.65; // 沿剑身随机位置
+        const colors = [0xff8a3a, 0xffd24a, 0xff5030];
+        game.particles.burst(
+          this.x + Math.cos(this.aim) * d,
+          this.y + Math.sin(this.aim) * d - 0.15,
+          {
+            color: colors[(Math.random() * 3) | 0],
+            count: 1, speed: 0.7, life: 0.35 + Math.random() * 0.2, size: 2.2, alpha: 0.9,
+          },
+        );
+      }
+    }
+
     // 皮肤待机微光
     this.skinFxT -= dt;
     if (this.skinFxT <= 0) {
@@ -616,6 +638,28 @@ export class Player {
     }
     this.weaponG.rotation = rot;
     this.weaponG.position.set(Math.cos(rot) * off * 0.04, Math.sin(rot) * off * 0.04 - 2);
+
+    // 烈焰剑：刃上跳动的火苗（跟随武器旋转，每帧重绘闪烁）
+    if (wd.flame) {
+      this.flameAnimT += dt * 14;
+      const f = this.flameG;
+      f.clear();
+      f.visible = true;
+      for (let i = 0; i < 3; i++) {
+        const bx = 22 + i * 6.5; // 沿刃排布（武器本地坐标，刃在 19~38px）
+        const h = 5 + Math.sin(this.flameAnimT + i * 2.1) * 2.2;
+        f.poly([bx - 2.5, -1, bx, -1 - h, bx + 2.5, -1]).fill({
+          color: i % 2 ? 0xffd24a : 0xff8a3a,
+          alpha: 0.7 + 0.2 * Math.sin(this.flameAnimT * 1.7 + i),
+        });
+      }
+      f.rotation = this.weaponG.rotation;
+      f.position.copyFrom(this.weaponG.position);
+    } else if (this.flameG.visible) {
+      this.flameG.clear();
+      this.flameG.visible = false;
+    }
+
     this.slashG.alpha = Math.max(0, this.slashG.alpha - dt * 7);
 
     // 无敌帧闪烁

@@ -2,6 +2,7 @@
 // 存档系统：localStorage 持久化（v2：货币 / 商店武器 / 武器等级 / 皮肤 / 天赋）
 
 import type { CurrencyKind, FoodKind, ResKind } from '../defs';
+import { pushCloudSave, deleteCloudSave } from './api';
 
 export interface SaveData {
   version: number;
@@ -83,7 +84,8 @@ export function unpackExplored(packed: string, length: number): Uint8Array {
   return explored;
 }
 
-export function writeSave(data: SaveData): void {
+/** 仅写本地 localStorage（不触发云同步）。用于把云存档镜像回本地等场景。 */
+export function writeSaveLocal(data: SaveData): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
   } catch {
@@ -91,6 +93,15 @@ export function writeSave(data: SaveData): void {
   }
 }
 
+export function writeSave(data: SaveData): void {
+  writeSaveLocal(data);
+  // 已登录则镜像到云端：fire-and-forget，失败不打断游戏（本地存档仍在）
+  void pushCloudSave(data).catch(() => {
+    /* 网络/鉴权失败：本地存档已写，忽略 */
+  });
+}
+
 export function clearSave(): void {
   localStorage.removeItem(KEY);
+  void deleteCloudSave();
 }

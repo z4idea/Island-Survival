@@ -329,6 +329,68 @@ kbd {
 .btn-ghost { border-color: rgba(255,255,255,0.18); }
 .btn small { display: block; font-size: 11px; color: var(--text-dim); letter-spacing: 0.05em; }
 
+/* ---------- 账号 / 云存档 ---------- */
+#account-bar {
+  margin-top: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.account-fields {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+#account-bar input {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(8, 12, 16, 0.7);
+  border: 1px solid rgba(232, 200, 112, 0.3);
+  border-radius: 8px;
+  padding: 9px 12px;
+  width: 150px;
+  letter-spacing: 0.05em;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#account-bar input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 12px rgba(232, 200, 112, 0.25);
+}
+#account-bar input::placeholder { color: var(--text-dim); }
+.btn-account {
+  min-width: 0;
+  padding: 9px 18px;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+}
+.account-tip {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+#account-logged-in {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+#account-status {
+  font-size: 14px;
+  color: var(--gold);
+  letter-spacing: 0.06em;
+}
+#account-msg {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  min-height: 1em;
+}
+#account-msg.err { color: #ff8a7a; }
+#account-msg.ok { color: #8fd6a0; }
+
 .controls-help {
   margin-top: 36px;
   display: flex; flex-wrap: wrap; justify-content: center;

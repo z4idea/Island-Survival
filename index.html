@@ -83,6 +83,25 @@
         <button id="btn-new" class="btn btn-primary">🌊 新的旅程</button>
         <button id="btn-continue" class="btn" disabled>🔥 继续旅程</button>
       </div>
+
+      <!-- 账号 / 云存档 -->
+      <div id="account-bar">
+        <div id="account-logged-out">
+          <div class="account-fields">
+            <input id="acc-username" type="text" autocomplete="username" maxlength="32" placeholder="用户名" />
+            <input id="acc-password" type="password" autocomplete="current-password" maxlength="64" placeholder="密码" />
+            <button id="btn-login" class="btn btn-account">登录</button>
+            <button id="btn-register" class="btn btn-account">注册</button>
+          </div>
+          <div class="account-tip">登录后存档将云端同步、可换设备继续；也可不登录离线游玩。</div>
+        </div>
+        <div id="account-logged-in" class="hidden">
+          <span id="account-status"></span>
+          <button id="btn-logout" class="btn btn-account">退出登录</button>
+        </div>
+        <div id="account-msg" class="hidden"></div>
+      </div>
+
       <div class="controls-help">
         <span><kbd>W A S D</kbd> 移动</span>
         <span><kbd>鼠标</kbd> 瞄准 / <kbd>左键</kbd> 攻击</span>

@@ -13,6 +13,7 @@ import { sfx } from './core/audio';
 import { packExplored, unpackExplored, writeSave, type SaveData } from './core/save';
 import { generateWorld, type NodeKind, type WorldData } from './world/worldgen';
 import { WorldRenderer } from './world/worldrender';
+import { EventDirector, WORLD_EVENTS } from './world/events';
 import { Particles, FloatTexts } from './fx';
 import { Player } from './entities/player';
 import { Animal } from './entities/animals';
@@ -167,6 +168,11 @@ export class Game {
   private weatherT = 50 + Math.random() * 70; // 距下次天气变化的秒数
   private rainC = new Container();
   private rainDrops: { g: Graphics; spd: number }[] = [];
+
+  // 世界事件（血月夜等）——独立于昼夜/天气的戏剧化事件，由 EventDirector 调度
+  bloodMoon = false; // 血月夜：全兽狂暴（animals.ts 每帧派生战斗强化）
+  lootMult = 1; // 全局掉落倍率（血月翻倍；animals.die() 读取）
+  private director = new EventDirector(WORLD_EVENTS);
 
   private camX = 0;
   private camY = 0;
@@ -853,6 +859,7 @@ export class Game {
     this.updateCampfires(dt);
     this.updateInteraction();
     this.updateCamera(dt);
+    this.director.update(this, dtRaw, this.playTime);
     this.updateDayNight(dtRaw);
     this.updateWeather(dtRaw);
     this.updateRespawns(dtRaw);
@@ -1441,8 +1448,14 @@ export class Game {
     const dayT = (this.time % DAY_LENGTH) / DAY_LENGTH;
     const sun = Math.cos(dayT * Math.PI * 2);
     const nightness = Math.max(0, Math.min(1, (0.15 - sun) / 1.3));
-    hud.setNight(nightness * 0.52);
     this.isNight = sun < -0.25;
+    if (this.bloodMoon) {
+      // 血月夜：夜幕更深更压抑，时钟显示血月
+      hud.setNight(Math.max(nightness * 0.52, 0.5));
+      hud.setClock('🩸');
+      return;
+    }
+    hud.setNight(nightness * 0.52);
     hud.setClock(
       this.rainIntensity > 0.5 ? '🌧️' : sun > 0.3 ? '☀️' : sun > -0.3 ? (dayT < 0.5 ? '🌅' : '🌄') : '🌙',
     );
@@ -1500,12 +1513,13 @@ export class Game {
   private updateRespawns(dt: number): void {
     this.respawnT -= dt;
     if (this.respawnT > 0) return;
-    this.respawnT = 6;
+    this.respawnT = this.bloodMoon ? 3 : 6; // 血月夜野兽更密集地涌现
+    const respawnDelay = this.bloodMoon ? 12 : 25;
     for (let i = 0; i < this.spawnRecords.length; i++) {
       const r = this.spawnRecords[i];
       if (r.kind === 'bear' || r.miniBoss) continue; // Boss/小 Boss 不重生
       if (r.animal && !r.animal.dead) continue;
-      if (r.deadAt < 0 || this.time - r.deadAt < 25) continue;
+      if (r.deadAt < 0 || this.time - r.deadAt < respawnDelay) continue;
       if (Math.hypot(r.x - this.player.x, r.y - this.player.y) < 16) continue;
       this.spawnAnimal(i);
       r.deadAt = -999;

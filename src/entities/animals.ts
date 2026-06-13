@@ -386,11 +386,13 @@ export class Animal implements CombatTarget {
     const dy = tgy - this.y;
     const dist = Math.hypot(dx, dy);
     const night = game.isNight;
-    const aggroR = this.def.aggroR * (night && this.def.kind === 'wolf' ? 1.45 : 1) * (this.miniBoss ? 1.8 : 1);
+    const bm = game.bloodMoon && !this.companion && !this.loved; // 血月狂暴
+    const dmgMul = bm ? 1.3 : 1;
+    const aggroR = this.def.aggroR * (night && this.def.kind === 'wolf' ? 1.45 : 1) * (this.miniBoss ? 1.8 : 1) * (bm ? 1.7 : 1);
 
     let vx = 0;
     let vy = 0;
-    let speed = this.def.speed * this.speedMul * ((this.def.boss || this.miniBoss) && this.hp < this.maxHp * 0.35 ? 1.3 : 1) * (this.enraged ? 1.55 : 1);
+    let speed = this.def.speed * this.speedMul * ((this.def.boss || this.miniBoss) && this.hp < this.maxHp * 0.35 ? 1.3 : 1) * (this.enraged ? 1.55 : 1) * (bm ? 1.25 : 1);
     if (night && this.def.kind === 'wolf') speed *= 1.15; // 夜晚狼群更迅捷
 
     switch (this.state) {
@@ -421,8 +423,13 @@ export class Animal implements CombatTarget {
         // 进入仇恨 / 逃跑
         if (this.def.flee) {
           if (dist < 6 && !tgtDead) this.setState('flee');
-        } else if (!tgtDead && !this.loved && (dist < aggroR || ((this.enraged || this.miniBoss) && dist < 14))) {
-          // 狂暴守卫 / 小 Boss：无视原本的被动/中立，主动扑向闯入者
+        } else if (
+          !tgtDead && !this.loved &&
+          (dist < aggroR ||
+            ((this.enraged || this.miniBoss) && dist < 14) ||
+            (bm && (this.def.aggroR > 0 || this.def.retaliate) && dist < 14))
+        ) {
+          // 狂暴守卫 / 小 Boss / 血月夜：无视原本的被动/中立，主动扑向闯入者
           this.startAggro(game);
         }
         break;
@@ -494,7 +501,7 @@ export class Animal implements CombatTarget {
               if (foe) {
                 foe.takeEnemyHit(this.dmg, kx, ky, game); // 攻击战宠：纯伤害，无中毒/魅惑
               } else {
-                const landed = p.takeDamage(this.dmg, kx, ky, game);
+                const landed = p.takeDamage(this.dmg * dmgMul, kx, ky, game);
                 if (landed && this.def.poison) p.applyPoison(4, game);
                 if (landed && this.def.charm) p.applyCharm(3, game);
               }
@@ -514,7 +521,7 @@ export class Animal implements CombatTarget {
           if (foe) {
             foe.takeEnemyHit(this.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
           } else {
-            const landed = p.takeDamage(this.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
+            const landed = p.takeDamage(this.dmg * 1.4 * dmgMul, this.chargeDx * 11, this.chargeDy * 11, game);
             if (landed && this.def.poison) p.applyPoison(4, game);
             if (landed && this.def.charm) p.applyCharm(3, game);
           }
@@ -605,12 +612,14 @@ export class Animal implements CombatTarget {
     } else {
       this.bodyC.x = 0;
     }
+    const bloodMoon = game.bloodMoon && !this.companion && !this.loved;
     this.gfx.tint =
       this.flashT > 0 ? 0xffb0b0
         : this.burnT > 0 ? 0xffc8a0
           : this.loved ? 0xffc8e0
             : this.enraged ? 0xff5a4a // 狂暴：身体常态发红
-              : 0xffffff;
+              : bloodMoon ? 0xff8a7a // 血月夜：野兽染上血色
+                : 0xffffff;
 
     // 狂暴守卫：脚下血气光环脉动 + 升腾血色粒子
     if (this.enraged && !this.loved) {
@@ -875,28 +884,29 @@ export class Animal implements CombatTarget {
       this.body = null;
     }
     game.particles.burst(this.x, this.y, { color: this.def.color, count: 14, speed: 3.5, life: 0.6, size: 4 });
-    // 资源掉落（拾荒者天赋：30% 概率翻倍）
-    const mult = game.player.hasTalent('scavenger') && Math.random() < 0.3 ? 2 : 1;
+    // 资源掉落（拾荒者天赋：30% 概率翻倍；血月夜：全局翻倍）
+    const loot = game.lootMult;
+    const mult = (game.player.hasTalent('scavenger') && Math.random() < 0.3 ? 2 : 1) * loot;
     for (const [kind, n] of Object.entries(this.def.drops)) {
       game.drops.spawn(kind as ResKind, this.x, this.y, n * mult);
     }
-    // 钱币掉落（幸运天赋：概率 ×1.5）
+    // 钱币掉落（幸运天赋：概率 ×1.5；血月夜：数量翻倍）
     const luck = game.player.hasTalent('lucky') ? 1.5 : 1;
     if (this.def.boss) {
-      game.drops.spawn('silver', this.x, this.y, 18);
-      game.drops.spawn('gold', this.x, this.y, 6);
-      game.drops.spawn('diamond', this.x, this.y, 3);
+      game.drops.spawn('silver', this.x, this.y, 18 * loot);
+      game.drops.spawn('gold', this.x, this.y, 6 * loot);
+      game.drops.spawn('diamond', this.x, this.y, 3 * loot);
     } else if (this.miniBoss) {
-      game.drops.spawn('silver', this.x, this.y, 10);
-      game.drops.spawn('gold', this.x, this.y, 4);
-      game.drops.spawn('diamond', this.x, this.y, 2);
+      game.drops.spawn('silver', this.x, this.y, 10 * loot);
+      game.drops.spawn('gold', this.x, this.y, 4 * loot);
+      game.drops.spawn('diamond', this.x, this.y, 2 * loot);
     } else {
       const ct = COIN_TABLE[this.def.kind];
       if (Math.random() < 0.65 * luck) {
-        game.drops.spawn('silver', this.x, this.y, Math.random() < 0.4 ? 2 : 1);
+        game.drops.spawn('silver', this.x, this.y, (Math.random() < 0.4 ? 2 : 1) * loot);
       }
-      if (Math.random() < ct.gold * luck) game.drops.spawn('gold', this.x, this.y, 1);
-      if (Math.random() < ct.diamond * luck) game.drops.spawn('diamond', this.x, this.y, 1);
+      if (Math.random() < ct.gold * luck) game.drops.spawn('gold', this.x, this.y, 1 * loot);
+      if (Math.random() < ct.diamond * luck) game.drops.spawn('diamond', this.x, this.y, 1 * loot);
     }
     game.onAnimalKilled(this);
   }

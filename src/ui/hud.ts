@@ -137,6 +137,11 @@ export function setWeatherDim(opacity: number): void {
   $('weather-overlay').style.opacity = String(opacity);
 }
 
+export function setBloodMoon(on: boolean): void {
+  $('night-overlay').classList.toggle('bloodmoon', on);
+  $('bloodmoon-vignette').classList.toggle('active', on);
+}
+
 export function setCaveOverlay(on: boolean): void {
   $('cave-overlay').classList.toggle('hidden', !on);
 }

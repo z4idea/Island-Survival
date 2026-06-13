@@ -188,6 +188,7 @@ export class Game {
   campfireId = 0;
   bossDefeated = false;
   miniBossesDefeated = new Set<string>(); // 已击杀的小 Boss id（不重生、战利品已发）
+  companions: Animal[] = []; // 玩家伙伴（丘比特收服，上限 2）
   isNight = false;
   private bossWarned = false;
   seed: number;
@@ -278,6 +279,7 @@ export class Game {
       this.spawnRecords.push({ kind: b.kind, x: b.x, y: b.y, animal: null, deadAt: -999 });
     }
     this.spawnAllAnimals();
+    if (save?.companions?.length) this.restoreCompanions(save.companions);
 
     // HUD
     hud.initMinimap(this.worldData, this.explored);
@@ -751,18 +753,32 @@ export class Game {
   }
 
   private regenerateAnimals(): void {
+    // 伙伴随玩家在篝火复活：记下物种，销毁旧实例后在玩家身边满血重生
+    const companionKinds = this.companions.map((c) => c.def.kind);
     for (const a of this.animals) a.destroy(this);
     for (const monkey of this.monkeys) monkey.destroy(this);
     this.animals = [];
     this.monkeys = [];
     this.blessingGuardians = [];
+    this.companions = [];
     for (const r of this.spawnRecords) {
       r.animal = null;
       r.deadAt = -999;
     }
     this.spawnAllAnimals();
+    this.restoreCompanions(companionKinds);
     // 若光柱仍在，重新布下守卫（避免死亡后白嫖神器）
     if (this.blessing) this.spawnBlessingGuardians(this.blessing.x, this.blessing.y);
+  }
+
+  /** 在玩家身边重新生成一批伙伴（读档 / 复活时） */
+  private restoreCompanions(kinds: string[]): void {
+    const p = this.player;
+    kinds.forEach((kind, i) => {
+      const a = i * 0.9 - 0.45;
+      this.spawnCompanion(kind, p.x + Math.cos(a) * 1.4, p.y + Math.sin(a) * 1.4 + 1);
+    });
+    hud.setCompanions(this.companions.map((c) => c.def.kind));
   }
 
   // ---------------- 主循环 ----------------
@@ -913,7 +929,8 @@ export class Game {
   }
 
   combatTargets(): Array<Animal | Monkey> {
-    return [...this.animals, ...this.monkeys];
+    // 伙伴排除在外：玩家的攻击/AoE 不会误伤自己的宠
+    return [...this.animals.filter((a) => !a.companion), ...this.monkeys];
   }
 
   private updateCampfires(dt: number): void {
@@ -994,6 +1011,16 @@ export class Game {
         }
       }
     }
+    // 伙伴：走近自己的宠可遣散；走近坠入爱河的野兽可收服
+    let nearCompanion: Animal | null = null;
+    let nearTameable: Animal | null = null;
+    if (!nearCf && !nearCave && !nearBless && !nearBush) {
+      for (const a of this.animals) {
+        if (a.dead || Math.hypot(a.x - p.x, a.y - p.y) > 1.5) continue;
+        if (a.companion) { nearCompanion = a; break; }
+        if (a.loved && !a.def.marine && !a.def.meleeImmune) nearTameable = a;
+      }
+    }
 
     if (nearCf) {
       hud.showPrompt('<kbd>E</kbd> 篝火 — 保存 · 强化 · 商店');
@@ -1003,6 +1030,10 @@ export class Game {
       hud.showPrompt('<kbd>E</kbd> 沐浴圣光 — 接受神器祝福');
     } else if (nearBush) {
       hud.showPrompt('<kbd>E</kbd> 采摘浆果');
+    } else if (nearCompanion) {
+      hud.showPrompt(`<kbd>E</kbd> 遣散伙伴 ${nearCompanion.def.name}`);
+    } else if (nearTameable) {
+      hud.showPrompt(`<kbd>E</kbd> 收服 ${nearTameable.def.name} 为伙伴（${this.companions.length}/2）`);
     } else {
       hud.showPrompt(null);
     }
@@ -1021,6 +1052,10 @@ export class Game {
         this.startBlessing();
       } else if (nearBush) {
         this.harvestBush(nearBush);
+      } else if (nearCompanion) {
+        this.dismissCompanion(nearCompanion);
+      } else if (nearTameable) {
+        this.recruitCompanion(nearTameable);
       }
     }
   }
@@ -1495,7 +1530,7 @@ export class Game {
     let active: Animal | null = null;
     let bestD = Infinity;
     for (const a of this.animals) {
-      if (a.dead || (!a.def.boss && !a.miniBoss)) continue;
+      if (a.dead || a.companion || (!a.def.boss && !a.miniBoss)) continue;
       const d = Math.hypot(a.x - this.player.x, a.y - this.player.y);
       if (!a.aggro && d >= 15) continue;
       if (d < bestD) {
@@ -1724,6 +1759,75 @@ export class Game {
       hud.toast(`👑 再次击败 ${mb?.icon ?? ''}${mb?.name ?? '小 Boss'}！洒落一批钻石`);
     }
     this.saveNow();
+  }
+
+  // ---------------- 伙伴（丘比特收服） ----------------
+
+  /** 收服坠入爱河的野兽为伙伴（上限 2，脱离原刷新点） */
+  recruitCompanion(a: Animal): void {
+    if (this.companions.length >= 2) {
+      hud.toast('🐾 伙伴已满（2 只），先遣散一只');
+      return;
+    }
+    a.companion = true;
+    a.loved = true;
+    a.aggro = false;
+    // 脱离刷新点：原地野怪正常补刷，伙伴成为独立实体不再重生
+    if (a.spawnIdx >= 0) {
+      const r = this.spawnRecords[a.spawnIdx];
+      if (r) {
+        r.animal = null;
+        r.deadAt = this.time;
+      }
+      a.spawnIdx = -1;
+    }
+    this.companions.push(a);
+    hud.setCompanions(this.companions.map((c) => c.def.kind));
+    const role = a.def.dmg > 0 ? '战宠' : '加速伙伴';
+    hud.toast(`🐾 ${a.def.name} 成为了你的${role}！`);
+    sfx.love();
+  }
+
+  /** 遣散伙伴：放归为坠入爱河的野兽（不再跟随，也不会重生） */
+  dismissCompanion(a: Animal): void {
+    a.companion = false;
+    a.foe = null;
+    const i = this.companions.indexOf(a);
+    if (i >= 0) this.companions.splice(i, 1);
+    // 清掉以它为目标的敌人仇恨
+    for (const e of this.animals) if (e.foe === a) e.foe = null;
+    hud.setCompanions(this.companions.map((c) => c.def.kind));
+    hud.toast(`🐾 ${a.def.name} 离开了队伍`);
+    sfx.ui();
+  }
+
+  /** 伙伴阵亡（永久）：移出名册、清敌人仇恨、立即存档 */
+  onCompanionDied(a: Animal): void {
+    const i = this.companions.indexOf(a);
+    if (i >= 0) this.companions.splice(i, 1);
+    for (const e of this.animals) if (e.foe === a) e.foe = null;
+    hud.setCompanions(this.companions.map((c) => c.def.kind));
+    hud.toast(`💔 你的伙伴 ${a.def.name} 倒下了…`);
+    this.addShake(0.4);
+    this.saveNow();
+  }
+
+  /** 食草伙伴的移速光环：身边 6 格内有则给玩家加速 */
+  companionSpeedMul(x: number, y: number): number {
+    for (const c of this.companions) {
+      if (!c.dead && c.def.dmg <= 0 && Math.hypot(c.x - x, c.y - y) < 6) return 1.12;
+    }
+    return 1;
+  }
+
+  /** 生成一只伙伴（收服时复用现有实例，读档时新建满血实例） */
+  private spawnCompanion(kind: string, x: number, y: number): void {
+    const a = new Animal(this.physWorld, kind as never, x, y, -1, G_ANIMAL, this.growthFactor);
+    a.companion = true;
+    a.loved = true;
+    this.objects.addChild(a.root);
+    this.animals.push(a);
+    this.companions.push(a);
   }
 
   onPlayerDeath(): void {
@@ -1966,6 +2070,7 @@ export class Game {
       removedNodes: [...this.removedNodes],
       bossDefeated: this.bossDefeated,
       miniBossesDefeated: [...this.miniBossesDefeated],
+      companions: this.companions.map((c) => c.def.kind),
       player: {
         x: p.x,
         y: p.y,

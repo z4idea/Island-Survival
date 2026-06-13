@@ -111,6 +111,9 @@ html, body {
 #trophies { display: flex; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
 .res.trophy { border-color: rgba(255,206,74,0.5); box-shadow: 0 0 8px rgba(255,206,74,0.25); padding: 3px 8px; }
 .res.trophy i { font-size: 15px; }
+#companions { display: flex; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
+.res.companion { border-color: rgba(255,122,176,0.5); box-shadow: 0 0 8px rgba(255,122,176,0.25); padding: 3px 8px; }
+.res.companion i { font-size: 15px; }
 .res {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--panel);

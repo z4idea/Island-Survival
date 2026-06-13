@@ -538,10 +538,11 @@ export class Player {
     } else {
       const rainMul = game.inCave !== null ? 1 : 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%（洞内不受雨影响）
       const mane = this.hasTrophy('wolfmane') ? 1.1 : 1; // 头狼之鬃：移速 +10%
+      const aura = game.companionSpeedMul(this.x, this.y); // 食草伙伴：加速光环
       let sp: number;
-      if (seaWalking) sp = PLAYER.speed * 1.7 * (this.hasTalent('sprinter') ? 1.08 : 1) * mane; // 海神之力：水上疾行
+      if (seaWalking) sp = PLAYER.speed * 1.7 * (this.hasTalent('sprinter') ? 1.08 : 1) * mane * aura; // 海神之力：水上疾行
       else if (this.sailing) sp = 7.0;
-      else sp = PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1) * mane;
+      else sp = PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1) * mane * aura;
       sp *= rainMul;
       vx = mx * sp;
       vy = my * sp;

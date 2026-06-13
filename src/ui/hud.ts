@@ -152,6 +152,18 @@ export function setBossBar(frac: number | null, name?: string): void {
   }
 }
 
+const COMPANION_EMOJI: Record<string, string> = {
+  wolf: '🐺', boar: '🐗', tiger: '🐯', fox: '🦊', crab: '🦀',
+  turtle: '🐢', goat: '🐐', deer: '🦌', gull: '🕊️', snake: '🐍',
+};
+
+/** 伙伴图标行（丘比特收服） */
+export function setCompanions(kinds: string[]): void {
+  $('companions').innerHTML = kinds
+    .map((k) => `<span class="res companion"><i>${COMPANION_EMOJI[k] ?? '🐾'}</i></span>`)
+    .join('');
+}
+
 /** 小 Boss 战利品图标行（永久被动） */
 export function setTrophies(ids: string[]): void {
   $('trophies').innerHTML = ids

@@ -10,6 +10,7 @@ export interface SaveData {
   removedNodes: number[]; // 已被采集摧毁的资源节点 id
   bossDefeated: boolean;
   miniBossesDefeated?: string[]; // 已击杀的小 Boss id（v4 旧档可缺省）
+  companions?: string[]; // 玩家伙伴的物种 kind 列表（v4 旧档可缺省）
   player: {
     x: number;
     y: number;

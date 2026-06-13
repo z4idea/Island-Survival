@@ -73,6 +73,8 @@ export class Animal implements CombatTarget {
   private enrageFxT = 0; // 血气粒子间隔
   miniBoss: MiniBossDef | null = null; // 岛屿小 Boss（精英守护者）：倍率强化 + 专属掉落
   private bodyScale = 1; // 体型缩放（小 Boss 1.45），每帧朝向翻转时复用
+  companion = false; // 玩家伙伴（丘比特收服）：跟随 + 战宠/加速，排除出玩家攻击目标
+  foe: Animal | null = null; // 敌对动物当前的攻击目标：默认 null=打玩家，被战宠激怒则指向该战宠
 
   constructor(
     world: RAPIER.World,
@@ -367,9 +369,21 @@ export class Animal implements CombatTarget {
       }
     }
 
+    // 战宠走独立分支（跟随 + 扑杀敌人），不混进敌人状态机
+    if (this.companion) {
+      this.updateCompanion(dt, game);
+      return;
+    }
+
     const p = game.player;
-    const dx = p.x - this.x;
-    const dy = p.y - this.y;
+    // 攻击目标：默认玩家，被战宠攻击(taunt)后转向该战宠；战宠死/脱队则回到玩家
+    if (this.foe && (this.foe.dead || !this.foe.companion)) this.foe = null;
+    const foe = this.foe;
+    const tgx = foe ? foe.x : p.x;
+    const tgy = foe ? foe.y : p.y;
+    const tgtDead = foe ? foe.dead : p.dead;
+    const dx = tgx - this.x;
+    const dy = tgy - this.y;
     const dist = Math.hypot(dx, dy);
     const night = game.isNight;
     const aggroR = this.def.aggroR * (night && this.def.kind === 'wolf' ? 1.45 : 1) * (this.miniBoss ? 1.8 : 1);
@@ -406,15 +420,15 @@ export class Animal implements CombatTarget {
         }
         // 进入仇恨 / 逃跑
         if (this.def.flee) {
-          if (dist < 6 && !p.dead) this.setState('flee');
-        } else if (!p.dead && !this.loved && (dist < aggroR || ((this.enraged || this.miniBoss) && dist < 14))) {
+          if (dist < 6 && !tgtDead) this.setState('flee');
+        } else if (!tgtDead && !this.loved && (dist < aggroR || ((this.enraged || this.miniBoss) && dist < 14))) {
           // 狂暴守卫 / 小 Boss：无视原本的被动/中立，主动扑向闯入者
           this.startAggro(game);
         }
         break;
       }
       case 'flee': {
-        if (dist > 11 || p.dead) {
+        if (dist > 11 || tgtDead) {
           this.setState('wander');
           break;
         }
@@ -425,7 +439,7 @@ export class Animal implements CombatTarget {
       }
       case 'chase': {
         // retaliate 类（山羊）aggroR 为 0，用保底脱战距离
-        if (dist > Math.max(aggroR, 6) * 2.2 + 4 || p.dead) {
+        if (dist > Math.max(aggroR, 6) * 2.2 + 4 || tgtDead) {
           this.aggro = false;
           this.setState('wander');
           break;
@@ -474,10 +488,16 @@ export class Animal implements CombatTarget {
             // 挥击判定
             this.atkCd = this.def.atkCd * (this.enraged ? 0.55 : 1);
             const hitR = this.def.atkR + 0.55;
-            if (dist < hitR && !p.dead) {
-              const landed = p.takeDamage(this.dmg, (dx / (dist || 1)) * 7, (dy / (dist || 1)) * 7, game);
-              if (landed && this.def.poison) p.applyPoison(4, game);
-              if (landed && this.def.charm) p.applyCharm(3, game);
+            if (dist < hitR && !tgtDead) {
+              const kx = (dx / (dist || 1)) * 7;
+              const ky = (dy / (dist || 1)) * 7;
+              if (foe) {
+                foe.takeEnemyHit(this.dmg, kx, ky, game); // 攻击战宠：纯伤害，无中毒/魅惑
+              } else {
+                const landed = p.takeDamage(this.dmg, kx, ky, game);
+                if (landed && this.def.poison) p.applyPoison(4, game);
+                if (landed && this.def.charm) p.applyCharm(3, game);
+              }
             }
             this.setState('chase');
           }
@@ -490,10 +510,14 @@ export class Animal implements CombatTarget {
         vx = this.chargeDx * chargeSpeed;
         vy = this.chargeDy * chargeSpeed;
         // 冲撞判定
-        if (dist < this.def.radius + 0.55 && !p.dead) {
-          const landed = p.takeDamage(this.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
-          if (landed && this.def.poison) p.applyPoison(4, game);
-          if (landed && this.def.charm) p.applyCharm(3, game);
+        if (dist < this.def.radius + 0.55 && !tgtDead) {
+          if (foe) {
+            foe.takeEnemyHit(this.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
+          } else {
+            const landed = p.takeDamage(this.dmg * 1.4, this.chargeDx * 11, this.chargeDy * 11, game);
+            if (landed && this.def.poison) p.applyPoison(4, game);
+            if (landed && this.def.charm) p.applyCharm(3, game);
+          }
           this.setState('chase');
           break;
         }
@@ -533,6 +557,12 @@ export class Animal implements CombatTarget {
         break;
     }
 
+    this.finishUpdate(vx, vy, dt, game);
+  }
+
+  /** AI 决策后的统一收尾：击退/水域钳制/setLinvel + 朝向/弹跳/染色/光环/血条/层级（敌人与战宠共用） */
+  private finishUpdate(vx: number, vy: number, dt: number, game: Game): void {
+    if (!this.body) return;
     // 击退覆盖
     if (this.knockT > 0) {
       vx = this.kvx;
@@ -644,7 +674,7 @@ export class Animal implements CombatTarget {
   /** 丘比特的弓：坠入爱河 —— 永久不再主动攻击玩家（被打会心碎清醒）。Boss 免疫 */
   makeLoved(game: Game): void {
     if (this.dead || this.loved) return;
-    if (this.def.boss) {
+    if (this.def.boss || this.miniBoss) {
       game.floats.show(this.x, this.y - 2, '巨兽不为所动…', 0xff8ac8, 14);
       return;
     }
@@ -655,6 +685,98 @@ export class Animal implements CombatTarget {
     game.floats.show(this.x, this.y - 1, '坠入爱河!', 0xff8ac8, 16);
     game.particles.burst(this.x, this.y - 0.4, { color: 0xff8ac8, count: 14, speed: 2.5, life: 0.7, size: 3 });
     sfx.love();
+  }
+
+  /** 战宠/加速伙伴：跟随玩家；掠食者侦敌扑杀，食草者纯跟随（加速光环在玩家侧结算） */
+  private updateCompanion(dt: number, game: Game): void {
+    if (!this.body) return;
+    const p = game.player;
+    const speed = this.def.speed * this.speedMul * 1.2; // 略快以跟上玩家
+    // 洞穴中或玩家死亡：原地待命
+    if (game.inCave !== null || p.dead) {
+      this.finishUpdate(0, 0, dt, game);
+      return;
+    }
+    const pdx = p.x - this.x;
+    const pdy = p.y - this.y;
+    const pdist = Math.hypot(pdx, pdy);
+    // 掉队太远：直接归队，免得被地形卡住
+    if (pdist > 26) {
+      this.body.setTranslation({ x: p.x - (pdx / (pdist || 1)) * 1.5, y: p.y - (pdy / (pdist || 1)) * 1.5 }, true);
+      this.finishUpdate(0, 0, dt, game);
+      return;
+    }
+    let vx = 0;
+    let vy = 0;
+    const enemy = this.def.dmg > 0 ? this.findEnemy(game) : null;
+    if (enemy) {
+      const ex = enemy.x - this.x;
+      const ey = enemy.y - this.y;
+      const ed = Math.hypot(ex, ey) || 1;
+      const reach = this.def.atkR + enemy.radius + 0.3;
+      if (ed <= reach) {
+        if (this.atkCd <= 0) {
+          this.atkCd = this.def.atkCd;
+          enemy.foe = this; // 嘲讽：敌人转而攻击我
+          enemy.damage(this.dmg, (ex / ed) * 7, (ey / ed) * 7, game);
+          game.particles.burst((this.x + enemy.x) / 2, (this.y + enemy.y) / 2 - 0.3, { color: 0xfff0c0, count: 4, speed: 2.2, life: 0.3, size: 2.5 });
+        }
+      } else {
+        vx = (ex / ed) * speed;
+        vy = (ey / ed) * speed;
+      }
+    } else if (pdist > 2.6) {
+      vx = (pdx / (pdist || 1)) * speed; // 跟随玩家
+      vy = (pdy / (pdist || 1)) * speed;
+    }
+    this.finishUpdate(vx, vy, dt, game);
+  }
+
+  /** 战宠侦敌：最近的非伙伴/非爱河、可近战命中的威胁（仇恨中或有攻击力），范围 12 */
+  private findEnemy(game: Game): Animal | null {
+    let best: Animal | null = null;
+    let bestD = 12 * 12;
+    for (const a of game.animals) {
+      if (a === this || a.dead || a.companion || a.loved) continue;
+      if (a.def.marine || a.def.meleeImmune) continue; // 水里/飞太高打不到
+      if (!a.aggro && a.def.dmg <= 0 && !a.def.boss && !a.miniBoss) continue; // 放过和平食草动物
+      const d = (a.x - this.x) ** 2 + (a.y - this.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = a;
+      }
+    }
+    return best;
+  }
+
+  /** 作为伙伴承受敌人伤害（纯伤害，无中毒/魅惑）；倒下即永久阵亡 */
+  takeEnemyHit(dmg: number, kx: number, ky: number, game: Game): void {
+    if (this.dead) return;
+    this.hp -= dmg;
+    this.flashT = 0.12;
+    this.hpShowT = 4;
+    this.kvx = kx;
+    this.kvy = ky;
+    this.knockT = 0.18;
+    game.floats.show(this.x, this.y - this.def.radius, `${Math.round(dmg)}`, 0xff9ac8, 14);
+    game.particles.burst(this.x, this.y, { color: 0xd6402f, count: 5, speed: 2.2, life: 0.4, size: 2.4 });
+    if (this.hp <= 0) this.fallAsCompanion(game);
+  }
+
+  /** 伙伴阵亡：心碎消散，不掉落、不重生、不触发击杀结算（名册/存档交给 game.onCompanionDied） */
+  private fallAsCompanion(game: Game): void {
+    this.dead = true;
+    this.setState('dying');
+    this.dieT = 0.6;
+    this.alertG.clear();
+    this.hpBar.visible = false;
+    this.lovedG.clear();
+    if (this.body) {
+      game.physWorld.removeRigidBody(this.body);
+      this.body = null;
+    }
+    game.particles.burst(this.x, this.y - 0.3, { color: 0xff7ab0, count: 16, speed: 2.6, life: 0.85, size: 3 });
+    game.onCompanionDied(this);
   }
 
   /** 强制脱离吸附（玩家进出洞穴 / 死亡时） */

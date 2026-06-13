@@ -1184,9 +1184,9 @@ export class Game {
       a.damage(dmg * (0.9 + Math.random() * 0.2), 0, 0, this); // 垂直雷击无水平击退
     }
     // 生成自天而降的锯齿闪电折线（世界本地像素坐标，y 向上为负）
-    const h = big ? 17 : 12; // 向上延伸的世界高度
+    const h = big ? 18 : 12; // 向上延伸的世界高度
     const segs = big ? 7 : 5;
-    const jitter = (big ? 1.0 : 0.55) * SCALE;
+    const jitter = (big ? 1.8 : 0.55) * SCALE; // 大型闪电摆幅更大、更张扬
     const pts: number[] = [0, 0];
     for (let i = 1; i <= segs; i++) {
       const f = i / segs;
@@ -1196,9 +1196,9 @@ export class Game {
     g.position.set(x * SCALE, y * SCALE);
     g.zIndex = y + 4; // 画在被击动物之上
     this.objects.addChild(g);
-    this.lightnings.push({ x, y, t: 0, life: big ? 0.4 : 0.28, big, pts, g });
+    this.lightnings.push({ x, y, t: 0, life: big ? 0.5 : 0.28, big, pts, g });
     this.particles.burst(x, y - 0.2, {
-      color: big ? 0xfff3a0 : 0xffe24a, count: big ? 18 : 9, speed: big ? 3.8 : 2.6, life: 0.5, size: 3,
+      color: big ? 0xfff3a0 : 0xffe24a, count: big ? 28 : 9, speed: big ? 5 : 2.6, life: big ? 0.6 : 0.5, size: big ? 4 : 3,
     });
     this.addShake(big ? 0.4 : 0.18);
     this.hitstop(big ? 0.05 : 0.025);
@@ -1219,20 +1219,21 @@ export class Game {
       const flick = 0.55 + Math.random() * 0.45; // 电光闪烁
       const g = L.g;
       g.clear();
-      // 落地辉光
-      const fr = L.big ? 24 : 15;
-      g.ellipse(0, 0, fr, fr * 0.45).fill({ color: 0xfff3a0, alpha: 0.4 * k });
+      // 落地辉光（大型闪电更大更亮）
+      const fr = L.big ? 40 : 15;
+      g.ellipse(0, 0, fr, fr * 0.45).fill({ color: 0xfff3a0, alpha: (L.big ? 0.5 : 0.4) * k });
       g.ellipse(0, 0, fr * 0.5, fr * 0.22).fill({ color: 0xffffff, alpha: 0.5 * k });
-      // 折线：外层金色辉光 → 炽白电芯
+      // 折线：超宽外辉（仅大型）→ 金色辉光 → 炽白电芯
       const p = L.pts;
       const drawBolt = (width: number, color: number, alpha: number): void => {
         g.moveTo(p[0], p[1]);
         for (let j = 2; j < p.length; j += 2) g.lineTo(p[j], p[j + 1]);
         g.stroke({ width, color, alpha });
       };
-      drawBolt(L.big ? 8 : 5, 0xffe24a, 0.45 * k * flick);
-      drawBolt(L.big ? 4 : 2.4, 0xfff3a0, 0.8 * k * flick);
-      drawBolt(L.big ? 1.8 : 1.1, 0xfffdf0, 0.95 * k * flick);
+      if (L.big) drawBolt(28, 0xffd24a, 0.22 * k * flick); // 大型：弥散的雷霆光晕
+      drawBolt(L.big ? 16 : 5, 0xffe24a, 0.42 * k * flick);
+      drawBolt(L.big ? 9 : 2.4, 0xfff3a0, 0.85 * k * flick);
+      drawBolt(L.big ? 4.5 : 1.1, 0xfffdf0, 0.98 * k * flick);
     }
   }
 

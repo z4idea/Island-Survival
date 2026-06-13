@@ -68,31 +68,43 @@ export class Monkey implements CombatTarget {
       this.body,
     );
 
+    const shadow = new Graphics();
+    shadow.ellipse(0, this.radius * SCALE * 0.5, this.radius * SCALE * 1.05, this.radius * SCALE * 0.42)
+      .fill({ color: 0x000000, alpha: 0.26 });
+    this.root.addChild(shadow);
     this.drawBody();
     this.root.addChild(this.bodyC);
     this.root.addChild(this.hpBar);
     this.root.position.set(x * SCALE, y * SCALE);
   }
 
+  // 俯视侧身造型，朝向 +x（与其他动物风格一致，靠 bodyC.scale.x 翻转朝向）
   private drawBody(): void {
     const g = this.gfx;
-    const s = SCALE;
-    g.ellipse(0, 13, 13, 5).fill({ color: 0x000000, alpha: 0.24 });
-    g.circle(-14, -12, 6).fill(0x7a4a28);
-    g.circle(14, -12, 6).fill(0x7a4a28);
-    g.circle(0, -8, 16).fill(0x85502c);
-    g.ellipse(0, -6, 11, 9).fill(0xd6a26d);
-    g.circle(-4, -9, 1.8).fill(0x21160f);
-    g.circle(4, -9, 1.8).fill(0x21160f);
-    g.ellipse(0, -3, 2.4, 1.5).fill(0x5b3320);
-    g.roundRect(-10, 5, 20, 17, 8).fill(0x754526);
-    g.moveTo(8, 12).bezierCurveTo(25, 8, 24, -12, 16, -16).stroke({ color: 0x754526, width: 5 });
+    const body = 0x85502c;
+    const dark = 0x5b3320;
+    const face = 0xd6a26d;
+    g.clear();
+    // 卷曲的长尾（画在身体后方）
+    g.moveTo(-12, 3).quadraticCurveTo(-25, 4, -24, -6).quadraticCurveTo(-23, -12, -18, -11)
+      .stroke({ width: 3.5, color: body });
+    g.ellipse(-8, 7, 4, 3).fill(dark); // 后腿
+    g.ellipse(-2, 0, 14, 9).fill(body); // 身体
+    g.ellipse(0, 3, 8, 5).fill(face); // 浅色腹部
+    g.circle(8, -8, 3).fill(dark); // 远耳
+    g.circle(16, -8, 3).fill(dark); // 近耳
+    g.circle(8, -8, 1.5).fill(face);
+    g.circle(16, -8, 1.5).fill(face);
+    g.circle(12, -2, 7).fill(body); // 头
+    g.ellipse(13, 0, 5.5, 5.5).fill(face); // 面盘
+    g.circle(10, -3, 1.4).fill(0x21160f); // 眼
+    g.circle(15, -3, 1.4).fill(0x21160f);
+    g.ellipse(13, 2, 2.4, 1.6).fill(dark); // 口鼻
     if (this.stolen) {
-      g.circle(10, 10, 6).fill(0xc99b50);
-      g.moveTo(6, 6).lineTo(14, 6).stroke({ color: 0x6a431f, width: 2 });
+      g.circle(-6, 6, 5).fill(0xc99b50); // 背着偷来的赃物口袋
+      g.moveTo(-9, 2).lineTo(-3, 2).stroke({ color: 0x6a431f, width: 2 });
     }
     this.bodyC.addChild(g);
-    this.bodyC.pivot.y = s * 0.1;
   }
 
   update(dt: number, game: Game): void {

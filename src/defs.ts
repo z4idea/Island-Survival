@@ -6,15 +6,18 @@ export const MAP = 320; // 地图边长（格）
 export const DAY_LENGTH = 300; // 一个昼夜循环的秒数
 
 // 碰撞分组：(membership << 16) | filter
-// STATIC=树木岩石 PLAYER=玩家 ANIMAL=陆地动物 WATER=深水屏障 MARINE=海洋动物
+// 位：bit0=STATIC bit1=PLAYER bit2=ANIMAL bit3=WATER bit4=WALL
+// STATIC=树木/岩石/水晶（圣翼冲刺可穿过） WALL=洞穴岩壁+地图边界墙（永不可穿越）
+// PLAYER=玩家 ANIMAL=陆地动物 WATER=深水屏障 MARINE=海洋动物
 export const GROUPS = {
   STATIC: (0x0001 << 16) | 0x0006,
-  PLAYER: (0x0002 << 16) | 0x000d, // 与静物/动物/深水屏障碰撞
-  PLAYER_BOAT: (0x0002 << 16) | 0x0005, // 乘船：无视深水屏障
-  PLAYER_PHASE: (0x0002 << 16) | 0x000c, // 圣翼冲刺：无视静物（树/石/墙），仍与动物/深水碰撞
-  ANIMAL: (0x0004 << 16) | 0x000f,
+  PLAYER: (0x0002 << 16) | 0x001d, // 与静物/动物/深水屏障/实墙碰撞
+  PLAYER_BOAT: (0x0002 << 16) | 0x0015, // 乘船：无视深水屏障（仍被实墙/静物挡）
+  PLAYER_PHASE: (0x0002 << 16) | 0x001c, // 圣翼冲刺：无视静物（树/石），但实墙/动物/深水仍阻挡
+  ANIMAL: (0x0004 << 16) | 0x001f,
   MARINE: (0x0004 << 16) | 0x0002, // 海洋动物只与玩家碰撞（靠 AI 留在水里）
   WATER: (0x0008 << 16) | 0x0006,
+  WALL: (0x0010 << 16) | 0x0006, // 洞穴岩壁 / 世界边界墙：圣翼冲刺也无法穿越
 } as const;
 
 export enum Tile {

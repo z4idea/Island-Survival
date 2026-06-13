@@ -315,7 +315,7 @@ export class Game {
     ];
     for (const [cx, cy, hx, hy] of walls) {
       this.physWorld.createCollider(
-        RAPIER.ColliderDesc.cuboid(hx, hy).setTranslation(cx, cy).setCollisionGroups(G_STATIC),
+        RAPIER.ColliderDesc.cuboid(hx, hy).setTranslation(cx, cy).setCollisionGroups(GROUPS.WALL),
       );
     }
   }
@@ -573,7 +573,7 @@ export class Game {
           this.physWorld.createCollider(
             RAPIER.ColliderDesc.cuboid(0.5, 0.5)
               .setTranslation(cave.ox + x + 0.5, cave.oy + y + 0.5)
-              .setCollisionGroups(GROUPS.STATIC),
+              .setCollisionGroups(GROUPS.WALL),
           );
         }
       }

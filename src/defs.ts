@@ -123,6 +123,8 @@ export interface WeaponDef {
   cast?: boolean; // 施法武器（权杖）：在鼠标点击处召唤攻击
   castRange?: number; // 施法领域半径（世界单位）
   aoeR?: number; // 施法爆发半径（世界单位）
+  thrust?: boolean; // 突刺型挥舞动画（长矛 / 雷霆神矛）
+  thunder?: boolean; // 宙斯的雷霆神矛：命中动物召唤天降闪电（雨天升级为大型闪电）
   artifact?: boolean; // 神器：不在商店出售，只能通过神器祝福获得
   price?: Price; // 有价格 = 需在商店购买；无价格 = 初始拥有
 }
@@ -131,7 +133,7 @@ const deg = (d: number) => (Math.PI * d) / 180;
 
 export const WEAPONS: WeaponDef[] = [
   { id: 'sword', name: '猎刀', icon: '🗡️', desc: '均衡的横扫', dmg: 12, range: 1.7, arc: deg(120), cd: 0.45, knock: 6, lunge: 1.6 },
-  { id: 'spear', name: '长矛', icon: '🔱', desc: '远距离突刺', dmg: 19, range: 2.7, arc: deg(44), cd: 0.8, knock: 9, lunge: 3.2 },
+  { id: 'spear', name: '长矛', icon: '🔱', desc: '远距离突刺', dmg: 19, range: 2.7, arc: deg(44), cd: 0.8, knock: 9, lunge: 3.2, thrust: true },
   { id: 'bow', name: '短弓', icon: '🏹', desc: '基础远程', dmg: 14, range: 14, arc: 0, cd: 0.95, knock: 4, projectile: true },
   { id: 'axe', name: '战斧', icon: '🪓', desc: '沉重劈砍，伐木采石收获 +1', dmg: 26, range: 1.9, arc: deg(140), cd: 0.72, knock: 10, lunge: 1.2, chopBonus: 1, price: { silver: 40 } },
   { id: 'daggers', name: '双刃', icon: '⚔️', desc: '极快的连击', dmg: 7.5, range: 1.35, arc: deg(100), cd: 0.16, knock: 2.5, lunge: 1.0, price: { silver: 60, gold: 5 } },
@@ -146,6 +148,10 @@ export const WEAPONS: WeaponDef[] = [
   {
     id: 'scepter', name: '阿比努斯的权杖', icon: '🪄', desc: '冥界引渡者的权杖：在施法领域内点击地面，自地底唤起冥火焚烧敌人',
     dmg: 30, range: 8.5, arc: 0, cd: 1.1, knock: 7, cast: true, castRange: 8.5, aoeR: 1.7, artifact: true,
+  },
+  {
+    id: 'thunderspear', name: '宙斯的雷霆神矛', icon: '⚡', desc: '众神之王的雷矛：命中的动物会被天降闪电劈中；雨天电闪雷鸣，化作威力更大的巨型雷霆',
+    dmg: 22, range: 2.8, arc: deg(46), cd: 0.85, knock: 9, lunge: 3.2, thrust: true, thunder: true, artifact: true,
   },
 ];
 
@@ -211,6 +217,12 @@ export const ARTIFACTS: ArtifactDef[] = [
     desc: '冥界引渡者的乌木权杖 —— 持杖时身周浮现施法领域，在领域内点击，自地底唤起冥火焚烧敌人',
     lore: '「亡者之火不灼生者，除非持杖者意欲如此。」 —— 《亡灵之书》残卷',
     color: 0x7af0c8, css: '#7af0c8',
+  },
+  {
+    id: 'thunderspear', slot: 'weapon', name: '宙斯的雷霆神矛', icon: '⚡',
+    desc: '众神之王的雷矛 —— 形如金色闪电、电芒缭绕。命中的动物会被一道天降闪电劈中；雨天电闪雷鸣，化作威力更大的巨型雷霆',
+    lore: '「他掷出的不是长矛，而是天空的怒火。」 —— 赫西俄德《神谱》',
+    color: 0xffe24a, css: '#ffe24a',
   },
   {
     id: 'wings', slot: 'relic', name: '大天使的翅膀', icon: '🕊️',

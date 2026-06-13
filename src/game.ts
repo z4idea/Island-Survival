@@ -106,6 +106,17 @@ interface NetherFire {
   g: Graphics;
 }
 
+/** 天降闪电（宙斯的雷霆神矛）：劈在落点，雨天为大型闪电 */
+interface Lightning {
+  x: number;
+  y: number;
+  t: number;
+  life: number;
+  big: boolean;
+  pts: number[]; // 折线点（武器/世界本地像素坐标，y 向上为负）
+  g: Graphics;
+}
+
 export class Game {
   app!: Application;
   input = new Input();
@@ -141,6 +152,7 @@ export class Game {
   private pendingArtifact: ArtifactDef | null = null;
   private blessingGuardians: Animal[] = []; // 神器守卫：环绕光柱的狂暴野兽
   private netherFires: NetherFire[] = [];
+  private lightnings: Lightning[] = []; // 天降闪电特效
 
   // 天气：晴 / 雨（雨天玩家移速降低）
   private weather: 'clear' | 'rain' = 'clear';
@@ -778,6 +790,7 @@ export class Game {
     this.particles.update(dt);
     this.floats.update(dt);
     this.updateNetherFires(dt);
+    this.updateLightnings(dt);
     this.updateBlessing(dt);
     this.updateNodes(dt);
     this.updateCampfires(dt);
@@ -1159,6 +1172,70 @@ export class Game {
     }
   }
 
+  // ---------------- 天降闪电（宙斯的雷霆神矛） ----------------
+
+  /** 在落点劈下闪电：小型（晴）/ 大型（雨）；立即结算范围伤害 + 视觉 */
+  castLightning(x: number, y: number, big: boolean): void {
+    const dmg = big ? 38 : 18;
+    const radius = big ? 1.9 : 0.55; // 大型闪电带链式溅射
+    for (const a of this.animals) {
+      if (a.dead || a.latched || a.def.meleeImmune) continue;
+      if (Math.hypot(a.x - x, a.y - y) > radius + a.def.radius) continue;
+      a.damage(dmg * (0.9 + Math.random() * 0.2), 0, 0, this); // 垂直雷击无水平击退
+    }
+    // 生成自天而降的锯齿闪电折线（世界本地像素坐标，y 向上为负）
+    const h = big ? 17 : 12; // 向上延伸的世界高度
+    const segs = big ? 7 : 5;
+    const jitter = (big ? 1.0 : 0.55) * SCALE;
+    const pts: number[] = [0, 0];
+    for (let i = 1; i <= segs; i++) {
+      const f = i / segs;
+      pts.push((Math.random() - 0.5) * jitter * (1 - f * 0.5), -h * SCALE * f);
+    }
+    const g = new Graphics();
+    g.position.set(x * SCALE, y * SCALE);
+    g.zIndex = y + 4; // 画在被击动物之上
+    this.objects.addChild(g);
+    this.lightnings.push({ x, y, t: 0, life: big ? 0.4 : 0.28, big, pts, g });
+    this.particles.burst(x, y - 0.2, {
+      color: big ? 0xfff3a0 : 0xffe24a, count: big ? 18 : 9, speed: big ? 3.8 : 2.6, life: 0.5, size: 3,
+    });
+    this.addShake(big ? 0.4 : 0.18);
+    this.hitstop(big ? 0.05 : 0.025);
+    sfx.thunder(big);
+  }
+
+  private updateLightnings(dt: number): void {
+    for (let i = this.lightnings.length - 1; i >= 0; i--) {
+      const L = this.lightnings[i];
+      L.t += dt;
+      if (L.t >= L.life) {
+        this.objects.removeChild(L.g);
+        L.g.destroy();
+        this.lightnings.splice(i, 1);
+        continue;
+      }
+      const k = 1 - L.t / L.life; // 1→0 渐隐
+      const flick = 0.55 + Math.random() * 0.45; // 电光闪烁
+      const g = L.g;
+      g.clear();
+      // 落地辉光
+      const fr = L.big ? 24 : 15;
+      g.ellipse(0, 0, fr, fr * 0.45).fill({ color: 0xfff3a0, alpha: 0.4 * k });
+      g.ellipse(0, 0, fr * 0.5, fr * 0.22).fill({ color: 0xffffff, alpha: 0.5 * k });
+      // 折线：外层金色辉光 → 炽白电芯
+      const p = L.pts;
+      const drawBolt = (width: number, color: number, alpha: number): void => {
+        g.moveTo(p[0], p[1]);
+        for (let j = 2; j < p.length; j += 2) g.lineTo(p[j], p[j + 1]);
+        g.stroke({ width, color, alpha });
+      };
+      drawBolt(L.big ? 8 : 5, 0xffe24a, 0.45 * k * flick);
+      drawBolt(L.big ? 4 : 2.4, 0xfff3a0, 0.8 * k * flick);
+      drawBolt(L.big ? 1.8 : 1.1, 0xfffdf0, 0.95 * k * flick);
+    }
+  }
+
   enterCave(id: number): void {
     const cave = this.caves[id];
     if (!cave) return;
@@ -1384,6 +1461,11 @@ export class Game {
       a.damage(dmg, Math.cos(kdir) * wd.knock, Math.sin(kdir) * wd.knock, this);
       if (crit) this.floats.show(a.x, a.y - 1, '暴击!', 0xffd24a, 14);
       if (wd.flame && !a.dead) a.burnT = Math.max(a.burnT, 3); // 点燃
+      // 雷霆神矛：命中召唤天降闪电（洞外雨天升级为大型闪电）
+      if (wd.thunder) {
+        const big = this.inCave === null && this.rainIntensity > 0.5;
+        this.castLightning(a.x, a.y, big);
+      }
       hitAnimal = true;
       this.hitstop(a.dead ? 0.09 : 0.035);
       if (a.dead) {

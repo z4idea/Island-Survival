@@ -75,6 +75,7 @@ export class Player {
   private flameAnimT = 0; // 火苗跳动相位
   private animT = 0; // 通用动画相位（领域环脉动 / 圣翼呼吸）
   private netherEmberT = 0; // 权杖宝珠的冥火余烬间隔
+  private thunderEmberT = 0; // 雷霆神矛的电芒火花间隔
   private castTx = 0; // 权杖施法落点（已收束到领域内）
   private castTy = 0;
   private dashHits = new Set<Animal>(); // 圣翼冲刺：每次冲刺对每只动物只伤害一次
@@ -248,6 +249,28 @@ export class Player {
         g.circle(42, 0, 4.5).fill(blade(0x7af0c8)); // 冥火宝珠
         g.circle(40.8, -1.2, 1.6).fill(0xd8fff0); // 珠内高光
         break;
+      case 'thunderspear': {
+        // 宙斯的雷霆神矛：矛身是一道金色闪电，外裹电芒辉光
+        const bolt = [6, 1.4, 16, -3.2, 22, 1, 32, -3, 40, 0.6, 48, -1.8]; // Z 形闪电折线（武器本地坐标）
+        // 外层辉光
+        for (let i = 0; i < bolt.length - 2; i += 2) {
+          g.moveTo(bolt[i], bolt[i + 1]).lineTo(bolt[i + 2], bolt[i + 3]).stroke({ width: 7, color: blade(0xffe24a), alpha: 0.28 });
+        }
+        // 金色矛身
+        for (let i = 0; i < bolt.length - 2; i += 2) {
+          g.moveTo(bolt[i], bolt[i + 1]).lineTo(bolt[i + 2], bolt[i + 3]).stroke({ width: 3.6, color: blade(0xffd24a) });
+        }
+        // 炽白电芯
+        for (let i = 0; i < bolt.length - 2; i += 2) {
+          g.moveTo(bolt[i], bolt[i + 1]).lineTo(bolt[i + 2], bolt[i + 3]).stroke({ width: 1.5, color: useSkin ? skin.blade : 0xfff8d8 });
+        }
+        // 矛尖
+        g.poly([48, -4.4, 58, 0.4, 48, 2.6]).fill(blade(0xffe24a));
+        g.poly([50, -1.6, 56, 0.4, 50, 1.4]).fill(useSkin ? skin.blade : 0xfff8d8);
+        // 握柄护环
+        g.circle(7, 0.7, 2.4).fill(accent(0xc8a030));
+        break;
+      }
     }
     this.drawCastUi(wd);
   }
@@ -625,6 +648,23 @@ export class Player {
       }
     }
 
+    // 雷霆神矛：矛身缭绕的金色电芒火花（雨天更密）
+    if (this.weapon.thunder) {
+      this.thunderEmberT -= dt;
+      if (this.thunderEmberT <= 0) {
+        this.thunderEmberT = game.rainIntensity > 0.5 ? 0.05 : 0.11;
+        const d = 0.7 + Math.random() * 1.2; // 沿矛身随机位置
+        game.particles.burst(
+          this.x + Math.cos(this.aim) * d + (Math.random() - 0.5) * 0.2,
+          this.y + Math.sin(this.aim) * d - 0.15 + (Math.random() - 0.5) * 0.2,
+          {
+            color: Math.random() < 0.5 ? 0xffe24a : 0xfff8d8,
+            count: 1, speed: 0.9, life: 0.3 + Math.random() * 0.2, size: 2, alpha: 0.9,
+          },
+        );
+      }
+    }
+
     // 皮肤待机微光
     this.skinFxT -= dt;
     if (this.skinFxT <= 0) {
@@ -701,8 +741,8 @@ export class Player {
     g.clear();
     const r = wd.range * SCALE;
     const skin = SKIN_BY_ID[this.activeSkin] ?? SKIN_BY_ID.default;
-    const color = wd.flame && skin.id === 'default' ? 0xffa050 : skin.slash;
-    if (wd.id === 'spear') {
+    const color = wd.thunder && skin.id === 'default' ? 0xfff3a0 : wd.flame && skin.id === 'default' ? 0xffa050 : skin.slash;
+    if (wd.thrust) {
       g.poly([8, -3, r, -1.2, r, 1.2, 8, 3]).fill({ color, alpha: 0.5 });
     } else {
       g.arc(0, 0, r * 0.85, -wd.arc / 2, wd.arc / 2).arc(0, 0, r * 0.45, wd.arc / 2, -wd.arc / 2, true).closePath();
@@ -835,7 +875,7 @@ export class Player {
     let rot = this.aim;
     let off = 0;
     if (this.swingT >= 0 && !wd.projectile) {
-      if (wd.id === 'spear') {
+      if (wd.thrust) {
         off = Math.sin(this.swingT * Math.PI) * wd.range * 0.45 * SCALE * 0.5;
       } else {
         rot += (this.swingT - 0.5) * wd.arc * 1.5 * this.swingDir;

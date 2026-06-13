@@ -196,6 +196,15 @@ export class Sfx {
     this.noise(0.25, 0.22, 2800, 900);
     this.tone(440, 0.22, 'triangle', 0.12, 880);
   }
+
+  /** 雷霆神矛：闪电劈落（big = 雨天大型雷霆，更响更沉） */
+  thunder(big: boolean): void {
+    // 电光爆裂的高频噼啪
+    this.noise(big ? 0.18 : 0.1, big ? 0.4 : 0.28, big ? 5200 : 6000, big ? 1200 : 1800);
+    // 滚雷低频轰鸣
+    this.tone(big ? 70 : 110, big ? 0.7 : 0.4, 'sawtooth', big ? 0.35 : 0.22, big ? 38 : 60);
+    if (big) this.noise(0.5, 0.18, 400, 90);
+  }
 }
 
 export const sfx = new Sfx();

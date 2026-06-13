@@ -127,9 +127,10 @@ export class Monkey implements CombatTarget {
     this.bodyC.rotation = Math.sin(this.runT * 0.5) * 0.08;
     this.bodyC.scale.x = this.dirX < 0 ? -1 : 1;
     this.root.position.set(this.x * SCALE, this.y * SCALE);
+    this.root.zIndex = this.y;
 
     this.flashT = Math.max(0, this.flashT - dt);
-    this.gfx.tint = this.flashT > 0 ? 0xffffff : 0xffffff;
+    this.gfx.tint = this.flashT > 0 ? 0xffd8b8 : 0xffffff;
     this.hpShowT = Math.max(0, this.hpShowT - dt);
     this.hpBar.visible = this.hpShowT > 0;
 

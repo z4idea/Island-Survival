@@ -903,6 +903,10 @@ export class Game {
     }
   }
 
+  combatTargets(): Array<Animal | Monkey> {
+    return [...this.animals, ...this.monkeys];
+  }
+
   private updateCampfires(dt: number): void {
     for (const cf of this.campfires) {
       const f = 1 + Math.sin(this.time * 13 + cf.id * 5) * 0.1 + Math.sin(this.time * 29 + cf.id) * 0.06;
@@ -1202,13 +1206,19 @@ export class Game {
       }
       if (!f.exploded && f.t >= DELAY) {
         f.exploded = true;
-        // 爆发：灼烧范围内动物（吸附中 / 高飞的蝙蝠打不到，与近战规则一致）
-        for (const a of this.animals) {
-          if (a.dead || a.latched || a.def.meleeImmune) continue;
-          if (Math.hypot(a.x - f.x, a.y - f.y) > f.aoeR + a.def.radius) continue;
-          const kd = Math.atan2(a.y - f.y, a.x - f.x);
-          a.damage(f.dmg * (0.9 + Math.random() * 0.2), Math.cos(kd) * f.knock, Math.sin(kd) * f.knock, this);
-          if (!a.dead) a.burnT = Math.max(a.burnT, 3);
+        // 爆发：动物保留高飞/吸附过滤，猴子只承受即时伤害
+        for (const target of this.combatTargets()) {
+          if (target.dead) continue;
+          if (target.targetType === 'animal' && (target.latched || target.def.meleeImmune)) continue;
+          if (Math.hypot(target.x - f.x, target.y - f.y) > f.aoeR + target.radius) continue;
+          const kd = Math.atan2(target.y - f.y, target.x - f.x);
+          target.damage(
+            f.dmg * (0.9 + Math.random() * 0.2),
+            Math.cos(kd) * f.knock,
+            Math.sin(kd) * f.knock,
+            this,
+          );
+          if (target.targetType === 'animal' && !target.dead) target.burnT = Math.max(target.burnT, 3);
         }
         this.particles.burst(f.x, f.y - 0.2, { color: 0x4ae0a0, count: 14, speed: 3.2, life: 0.6, size: 3 });
         this.particles.burst(f.x, f.y - 0.3, { color: 0x7af0c8, count: 8, speed: 2.2, life: 0.5, size: 2.5 });
@@ -1253,10 +1263,11 @@ export class Game {
   castLightning(x: number, y: number, big: boolean): void {
     const dmg = big ? 38 : 18;
     const radius = big ? 1.9 : 0.55; // 大型闪电带链式溅射
-    for (const a of this.animals) {
-      if (a.dead || a.latched || a.def.meleeImmune) continue;
-      if (Math.hypot(a.x - x, a.y - y) > radius + a.def.radius) continue;
-      a.damage(dmg * (0.9 + Math.random() * 0.2), 0, 0, this); // 垂直雷击无水平击退
+    for (const target of this.combatTargets()) {
+      if (target.dead) continue;
+      if (target.targetType === 'animal' && (target.latched || target.def.meleeImmune)) continue;
+      if (Math.hypot(target.x - x, target.y - y) > radius + target.radius) continue;
+      target.damage(dmg * (0.9 + Math.random() * 0.2), 0, 0, this); // 垂直雷击无水平击退
     }
     // 生成自天而降的锯齿闪电折线（世界本地像素坐标，y 向上为负）
     const h = big ? 18 : 12; // 向上延伸的世界高度
@@ -1518,14 +1529,14 @@ export class Game {
 
   meleeStrike(player: Player, wd: WeaponDef): void {
     const dir = player.aim;
-    let hitAnimal = false;
-    for (const a of this.animals) {
-      if (a.dead) continue;
-      if (a.def.meleeImmune || a.latched) continue; // 蝙蝠飞得太高 / 已咬住玩家，近战打不到
-      const dx = a.x - player.x;
-      const dy = a.y - player.y;
+    let hitTarget = false;
+    for (const target of this.combatTargets()) {
+      if (target.dead) continue;
+      if (target.targetType === 'animal' && (target.def.meleeImmune || target.latched)) continue;
+      const dx = target.x - player.x;
+      const dy = target.y - player.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > wd.range + a.def.radius) continue;
+      if (dist > wd.range + target.radius) continue;
       let ang = Math.atan2(dy, dx) - dir;
       while (ang > Math.PI) ang -= Math.PI * 2;
       while (ang < -Math.PI) ang += Math.PI * 2;
@@ -1534,22 +1545,24 @@ export class Game {
       const crit = Math.random() < 0.1;
       const dmg = player.weaponDmg(wd) * (0.9 + Math.random() * 0.25) * (crit ? 1.7 : 1);
       const kdir = Math.atan2(dy, dx);
-      a.damage(dmg, Math.cos(kdir) * wd.knock, Math.sin(kdir) * wd.knock, this);
-      if (crit) this.floats.show(a.x, a.y - 1, '暴击!', 0xffd24a, 14);
-      if (wd.flame && !a.dead) a.burnT = Math.max(a.burnT, 3); // 点燃
+      target.damage(dmg, Math.cos(kdir) * wd.knock, Math.sin(kdir) * wd.knock, this);
+      if (crit) this.floats.show(target.x, target.y - 1, '暴击!', 0xffd24a, 14);
+      if (wd.flame && target.targetType === 'animal' && !target.dead) {
+        target.burnT = Math.max(target.burnT, 3);
+      }
       // 雷霆神矛：命中召唤天降闪电（洞外雨天升级为大型闪电）
       if (wd.thunder) {
         const big = this.inCave === null && this.rainIntensity > 0.5;
-        this.castLightning(a.x, a.y, big);
+        this.castLightning(target.x, target.y, big);
       }
-      hitAnimal = true;
-      this.hitstop(a.dead ? 0.09 : 0.035);
-      if (a.dead) {
+      hitTarget = true;
+      this.hitstop(target.dead ? 0.09 : 0.035);
+      if (target.dead) {
         this.addShake(0.22);
         if (player.hasTalent('vampire')) player.heal(4, this); // 嗜血：击杀回血
       }
     }
-    if (hitAnimal) sfx.hit();
+    if (hitTarget) sfx.hit();
 
     // 采集：每次挥击只命中最近的一个资源节点
     let best: WNode | null = null;

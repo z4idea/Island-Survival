@@ -82,15 +82,17 @@ export class Projectiles {
       for (let s = 0; s < steps && !hit && a.stuck <= 0; s++) {
         a.x += (a.vx * dt) / steps;
         a.y += (a.vy * dt) / steps;
-        // 命中动物（吸附在玩家头上的蝙蝠射不到）
-        for (const an of game.animals) {
-          if (an.dead || an.latched) continue;
-          const d = Math.hypot(an.x - a.x, an.y - a.y);
-          if (d < an.def.radius + 0.22) {
+        // 命中动物或逃跑猴子（吸附在玩家头上的蝙蝠射不到）
+        for (const target of game.combatTargets()) {
+          if (target.dead || (target.targetType === 'animal' && target.latched)) continue;
+          const d = Math.hypot(target.x - a.x, target.y - a.y);
+          if (d < target.radius + 0.22) {
             const dir = Math.atan2(a.vy, a.vx);
-            an.damage(a.dmg, Math.cos(dir) * a.knock, Math.sin(dir) * a.knock, game);
+            target.damage(a.dmg, Math.cos(dir) * a.knock, Math.sin(dir) * a.knock, game);
             // 丘比特之箭：概率使动物坠入爱河
-            if (a.love > 0 && !an.dead && Math.random() < a.love) an.makeLoved(game);
+            if (a.love > 0 && target.targetType === 'animal' && !target.dead && Math.random() < a.love) {
+              target.makeLoved(game);
+            }
             game.onArrowHit(a.x, a.y);
             hit = true;
             break;

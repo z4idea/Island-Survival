@@ -8,10 +8,10 @@ import {
   type CurrencyKind, type Price, type ResKind, type WeaponDef,
 } from '../defs';
 import type { Game } from '../game';
-import type { Animal } from './animals';
 import { sfx } from '../core/audio';
 import { Statuses } from '../core/status';
 import * as hud from '../ui/hud';
+import type { CombatTarget } from './combat-target';
 import type { MonkeyInventory, StolenItem } from './monkey-logic';
 
 export class Player {
@@ -84,7 +84,7 @@ export class Player {
   private seaWalking = false; // 当前是否由三叉戟驱动踏浪
   private castTx = 0; // 权杖施法落点（已收束到领域内）
   private castTy = 0;
-  private dashHits = new Set<Animal>(); // 圣翼冲刺：每次冲刺对每只动物只伤害一次
+  private dashHits = new Set<CombatTarget>(); // 圣翼冲刺：每次冲刺对每个目标只伤害一次
   private wingsDrawn = false;
   private colGroup = GROUPS.PLAYER; // 当前碰撞组（乘船 / 圣翼相位时切换）
 
@@ -492,18 +492,19 @@ export class Player {
         game.particles.burst(this.x - this.dashDx * 0.3, this.y - this.dashDy * 0.3, {
           color: Math.random() < 0.5 ? 0xfffdf4 : 0xffe9a0, count: 2, speed: 1.2, life: 0.45, size: 2.5, alpha: 0.9,
         });
-        for (const an of game.animals) {
-          if (an.dead || an.latched || an.def.meleeImmune || this.dashHits.has(an)) continue;
-          if (Math.hypot(an.x - this.x, an.y - this.y) < an.def.radius + 0.85) {
-            this.dashHits.add(an);
-            const kd = Math.atan2(an.y - this.y, an.x - this.x);
-            an.damage(
+        for (const target of game.combatTargets()) {
+          if (target.dead || this.dashHits.has(target)) continue;
+          if (target.targetType === 'animal' && (target.latched || target.def.meleeImmune)) continue;
+          if (Math.hypot(target.x - this.x, target.y - this.y) < target.radius + 0.85) {
+            this.dashHits.add(target);
+            const kd = Math.atan2(target.y - this.y, target.x - this.x);
+            target.damage(
               24 * this.dmgMul,
               Math.cos(kd) * 9 + this.dashDx * 4,
               Math.sin(kd) * 9 + this.dashDy * 4,
               game,
             );
-            game.particles.burst(an.x, an.y, { color: 0xfff0c0, count: 8, speed: 3, life: 0.4, size: 3 });
+            game.particles.burst(target.x, target.y, { color: 0xfff0c0, count: 8, speed: 3, life: 0.4, size: 3 });
             game.hitstop(0.025);
             sfx.hit();
           }

@@ -59,6 +59,54 @@ export const RES_NAME: Record<ResKind, string> = {
   hide: '兽皮',
 };
 
+// ---------- 食物 / 烹饪 ----------
+// 生食（浆果/生肉）回血弱且生肉有概率食物中毒，详见 player.ts；
+// 在篝火把生鲜烤成熟食：回血更高、零中毒风险，部分料理附带临时增益。
+export type FoodKind = 'cookedMeat' | 'berryJerky' | 'skewer' | 'stew';
+
+export interface FoodDef {
+  id: FoodKind;
+  name: string;
+  icon: string;
+  desc: string;
+  recipe: Partial<Record<ResKind, number>>; // 配方（含 🪵 木柴当燃料）
+  heal: number; // 即时回血
+  /** 进食快捷键归属：meat→F 肉类、berry→Q 浆果类、supply→R 料理（buff，可满血食用） */
+  slot: 'meat' | 'berry' | 'supply';
+  stam?: number; // 额外回复耐力
+  atkBuff?: number; // 临时攻击加成倍率（0.2 = +20%）
+  atkBuffDur?: number; // 攻击加成持续秒数
+  regen?: number; // 持续回血速度（每秒）
+  regenDur?: number; // 持续回血秒数
+}
+
+export const FOODS: FoodDef[] = [
+  {
+    id: 'cookedMeat', name: '烤肉', icon: '🍗',
+    desc: '篝火慢烤的兽肉，安全管饱的基础口粮（按 F 食用）',
+    recipe: { meat: 10, wood: 10 }, heal: 22, slot: 'meat',
+  },
+  {
+    id: 'berryJerky', name: '莓果干', icon: '🍓',
+    desc: '烘干的浆果，回血之余还能恢复体力（按 Q 食用）',
+    recipe: { berry: 20, wood: 10 }, heal: 10, slot: 'berry', stam: 30,
+  },
+  {
+    id: 'skewer', name: '烤肉串', icon: '🍢',
+    desc: '焦香四溢，食用后 30 秒内攻击力 +20%（按 R 食用）',
+    recipe: { meat: 20, berry: 10, wood: 10 }, heal: 18, slot: 'supply',
+    atkBuff: 0.2, atkBuffDur: 30,
+  },
+  {
+    id: 'stew', name: '兽肉炖锅', icon: '🥘',
+    desc: '兽肉与兽皮慢炖的浓汤，10 秒内持续回血（按 R 食用）',
+    recipe: { meat: 20, hide: 10, wood: 10 }, heal: 15, slot: 'supply',
+    regen: 4, regenDur: 10,
+  },
+];
+
+export const FOOD_BY_ID = Object.fromEntries(FOODS.map((f) => [f.id, f])) as Record<FoodKind, FoodDef>;
+
 // ---------- 货币 ----------
 export type CurrencyKind = 'silver' | 'gold' | 'diamond';
 export type Price = Partial<Record<CurrencyKind, number>>;

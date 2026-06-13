@@ -2,8 +2,8 @@
 // HUD：生命/耐力条、资源计数、武器栏、小地图、提示与各类界面切换
 
 import {
-  ARTIFACTS, CURRENCY, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
-  type ArtifactDef, type CurrencyKind, type Price, type ResKind,
+  ARTIFACTS, CURRENCY, FOODS, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
+  type ArtifactDef, type CurrencyKind, type FoodKind, type Price, type ResKind,
 } from '../defs';
 import { STATUS_INFO, type StatusKind } from '../core/status';
 import type { WorldData } from '../world/worldgen';
@@ -34,6 +34,22 @@ export function setRes(res: Record<ResKind, number>): void {
 
 export function bumpRes(kind: ResKind, value: number): void {
   const el = $(`res-${kind}`);
+  el.textContent = String(value);
+  const parent = el.parentElement!;
+  parent.classList.remove('bump');
+  void parent.offsetWidth; // 重置动画
+  parent.classList.add('bump');
+}
+
+// ---------- 随身熟食 ----------
+export function setFood(food: Record<FoodKind, number>): void {
+  for (const k of Object.keys(food) as FoodKind[]) {
+    $(`food-${k}`).textContent = String(food[k]);
+  }
+}
+
+export function bumpFood(kind: FoodKind, value: number): void {
+  const el = $(`food-${kind}`);
   el.textContent = String(value);
   const parent = el.parentElement!;
   parent.classList.remove('bump');
@@ -136,7 +152,7 @@ export function setBossBar(frac: number | null): void {
 }
 
 // ---------- 界面切换 ----------
-export type Screen = 'title' | 'death' | 'win' | 'pause' | 'campfire' | 'shop' | null;
+export type Screen = 'title' | 'death' | 'win' | 'pause' | 'campfire' | 'shop' | 'cook' | null;
 
 export function showScreen(s: Screen): void {
   $('title-screen').classList.toggle('hidden', s !== 'title');
@@ -145,6 +161,7 @@ export function showScreen(s: Screen): void {
   $('pause-screen').classList.toggle('hidden', s !== 'pause');
   $('campfire-menu').classList.toggle('hidden', s !== 'campfire');
   $('shop-menu').classList.toggle('hidden', s !== 'shop');
+  $('cook-menu').classList.toggle('hidden', s !== 'cook');
 }
 
 // ---------- 商店 ----------
@@ -253,6 +270,32 @@ export function renderShop(p: Player, tab: ShopTab): void {
     }).join('');
   }
   $('shop-items').innerHTML = html;
+}
+
+// ---------- 篝火烹饪 ----------
+export function renderCook(p: Player): void {
+  // 当前持有的生鲜
+  $('cook-res').innerHTML = (['meat', 'berry', 'hide', 'wood'] as ResKind[])
+    .map((k) => `<span class="coin" style="--coin-color:#cfe3b0">${RES_EMOJI[k]} ${p.res[k]}</span>`)
+    .join('');
+
+  $('cook-items').innerHTML = FOODS.map((f) => {
+    const owned = p.food[f.id] ?? 0;
+    const afford = Object.entries(f.recipe).every(([k, n]) => p.res[k as ResKind] >= (n as number));
+    const costStr = Object.entries(f.recipe)
+      .map(([k, n]) => {
+        const lack = p.res[k as ResKind] < (n as number) ? ' lack' : '';
+        return `<span class="coin${lack}" style="--coin-color:#cfe3b0">${RES_EMOJI[k as ResKind]} ${n}</span>`;
+      })
+      .join('');
+    const btn = `<button class="btn shop-btn${afford ? '' : ' cant'}" data-cook="${f.id}">${costStr}</button>`;
+    return `<div class="shop-item">
+      <span class="shop-icon">${f.icon}</span>
+      <div class="shop-info"><b>${f.name} <em>持有 ${owned}</em></b>
+        <small>${f.desc}</small>
+        <small class="stats">回血 +${f.heal}${f.stam ? ` · 体力 +${f.stam}` : ''}${f.atkBuff ? ` · 攻击 +${Math.round(f.atkBuff * 100)}% / ${f.atkBuffDur}s` : ''}${f.regen ? ` · 持续回血 ${f.regen}/s × ${f.regenDur}s` : ''}</small></div>
+      ${btn}</div>`;
+  }).join('');
 }
 
 // ---------- 神器祝福仪式 ----------

@@ -1,7 +1,7 @@
 // @author: zhjj
 // 存档系统：localStorage 持久化（v2：货币 / 商店武器 / 武器等级 / 皮肤 / 天赋）
 
-import type { CurrencyKind, ResKind } from '../defs';
+import type { CurrencyKind, FoodKind, ResKind } from '../defs';
 
 export interface SaveData {
   version: number;
@@ -17,6 +17,7 @@ export interface SaveData {
     maxStam: number;
     weapon: number; // 在已拥有武器列表中的下标
     res: Record<ResKind, number>;
+    food?: Record<FoodKind, number>; // 随身熟食（v4 旧档可缺省）
     upgrades: { atk: number; hp: number; stam: number };
     coins: Record<CurrencyKind, number>;
     weapons: string[]; // 已拥有武器 id 列表

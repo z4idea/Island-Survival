@@ -5,7 +5,7 @@ import RAPIER from '@dimforge/rapier2d-compat';
 import { Application, Container, Graphics } from 'pixi.js';
 import {
   ARTIFACTS, DAY_LENGTH, GROUPS, MAP, SCALE, Tile, UPGRADES,
-  GEAR_BY_ID, SKIN_BY_ID, TALENT_BY_ID, WEAPON_BY_ID, WEAPON_UPG,
+  FOOD_BY_ID, GEAR_BY_ID, SKIN_BY_ID, TALENT_BY_ID, WEAPON_BY_ID, WEAPON_UPG,
   type ArtifactDef, type ResKind, type WeaponDef,
 } from './defs';
 import { Input } from './core/input';
@@ -180,7 +180,7 @@ export class Game {
 
   paused = false;
   menuOpen = false;
-  private menuKind: 'campfire' | 'shop' | 'blessing' | null = null;
+  private menuKind: 'campfire' | 'shop' | 'cook' | 'blessing' | null = null;
   private shopTab: hud.ShopTab = 'weapons';
   private activeCampfire: Campfire | null = null;
   private state: 'playing' | 'dead' = 'playing';
@@ -248,6 +248,7 @@ export class Game {
       this.player.maxStam = p.maxStam;
       this.player.stam = p.maxStam;
       this.player.res = { ...p.res };
+      if (p.food) this.player.food = { ...this.player.food, ...p.food };
       this.player.upgrades = { ...p.upgrades };
       this.player.coins = { ...p.coins };
       this.player.weapons = [...p.weapons];
@@ -278,6 +279,7 @@ export class Game {
     hud.initMinimap(this.worldData, this.explored);
     hud.buildHotbar(this.player.weapons, this.player.weaponIdx);
     hud.setRes(this.player.res);
+    hud.setFood(this.player.food);
     hud.updateCoins(this.player.coins);
     hud.setHp(this.player.hp, this.player.maxHp);
     this.revealAround(this.player.x, this.player.y);
@@ -776,6 +778,7 @@ export class Game {
     if (this.menuOpen) {
       if (this.menuKind === 'blessing') return; // 祝福仪式不可中断
       if (this.menuKind === 'shop') this.closeShop();
+      else if (this.menuKind === 'cook') this.closeCook();
       else this.campfireAction('close');
     } else if (this.paused) {
       this.setPaused(false);
@@ -1799,6 +1802,43 @@ export class Game {
     sfx.ui();
   }
 
+  // ---------------- 篝火烹饪 ----------------
+
+  openCook(): void {
+    this.menuOpen = true;
+    this.menuKind = 'cook';
+    hud.showScreen('cook');
+    hud.renderCook(this.player);
+    sfx.ui();
+  }
+
+  closeCook(): void {
+    this.menuOpen = false;
+    this.menuKind = null;
+    hud.showScreen(null);
+    sfx.ui();
+  }
+
+  cookAction(id: string): void {
+    const p = this.player;
+    const def = FOOD_BY_ID[id as keyof typeof FOOD_BY_ID];
+    if (!def) return;
+    const afford = Object.entries(def.recipe).every(([k, n]) => p.res[k as ResKind] >= (n as number));
+    if (!afford) {
+      hud.toast('材料不足…');
+      return;
+    }
+    for (const [k, n] of Object.entries(def.recipe)) {
+      p.res[k as ResKind] -= n as number;
+    }
+    p.food[def.id]++;
+    sfx.upgrade();
+    hud.setRes(p.res);
+    hud.bumpFood(def.id, p.food[def.id]);
+    hud.renderCook(p);
+    hud.toast(`${def.icon} 烹饪好了一份「${def.name}」`);
+  }
+
   shopAction(act: string, id: string): void {
     const p = this.player;
     if (act === 'buy-weapon') {
@@ -1889,6 +1929,7 @@ export class Game {
         maxStam: p.maxStam,
         weapon: p.weaponIdx,
         res: { ...p.res },
+        food: { ...p.food },
         upgrades: { ...p.upgrades },
         coins: { ...p.coins },
         weapons: [...p.weapons],

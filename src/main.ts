@@ -51,8 +51,17 @@ function init(): void {
   $('cf-atk').addEventListener('click', () => game?.campfireAction('atk'));
   $('cf-hp').addEventListener('click', () => game?.campfireAction('hp'));
   $('cf-stam').addEventListener('click', () => game?.campfireAction('stam'));
+  $('cf-cook').addEventListener('click', () => game?.openCook());
   $('cf-shop').addEventListener('click', () => game?.openShop());
   $('cf-close').addEventListener('click', () => game?.campfireAction('close'));
+
+  // 烹饪：菜单事件委托
+  $('cook-close').addEventListener('click', () => game?.closeCook());
+  $('cook-menu').addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('[data-cook]') as HTMLElement | null;
+    if (!target || !game || !target.dataset.cook) return;
+    game.cookAction(target.dataset.cook);
+  });
 
   // 神器祝福仪式：接受按钮
   $('blessing-accept').addEventListener('click', () => game?.acceptBlessing());

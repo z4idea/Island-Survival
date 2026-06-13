@@ -105,6 +105,9 @@ html, body {
 @keyframes status-pulse { 50% { transform: scale(1.25); opacity: 0.7; } }
 
 #resources { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+#foods { display: flex; gap: 10px; margin-top: 5px; flex-wrap: wrap; }
+.res.food { border-color: rgba(255,196,120,0.3); }
+.res.food b { color: #ffc478; }
 .res {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--panel);

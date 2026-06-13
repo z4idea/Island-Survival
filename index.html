@@ -38,6 +38,12 @@
         <span class="res"><i>🍖</i><b id="res-meat">0</b></span>
         <span class="res"><i>🐾</i><b id="res-hide">0</b></span>
       </div>
+      <div id="foods">
+        <span class="res food"><i>🍗</i><b id="food-cookedMeat">0</b></span>
+        <span class="res food"><i>🍓</i><b id="food-berryJerky">0</b></span>
+        <span class="res food"><i>🍢</i><b id="food-skewer">0</b></span>
+        <span class="res food"><i>🥘</i><b id="food-stew">0</b></span>
+      </div>
       <div id="currencies">
         <span class="res cur-silver"><i>●</i><b id="coin-silver">0</b></span>
         <span class="res cur-gold"><i>●</i><b id="coin-gold">0</b></span>
@@ -79,7 +85,7 @@
         <span><kbd>空格</kbd> 翻滚闪避</span>
         <span><kbd>1~9</kbd> / <kbd>滚轮</kbd> 切换武器</span>
         <span><kbd>E</kbd> 互动</span>
-        <span><kbd>Q</kbd> 吃浆果 <kbd>F</kbd> 吃肉</span>
+        <span><kbd>Q</kbd> 吃浆果 <kbd>F</kbd> 吃肉 <kbd>R</kbd> 吃料理</span>
         <span><kbd>Esc</kbd> 暂停</span>
       </div>
     </div>
@@ -109,8 +115,8 @@
       <h2>暂停</h2>
       <div class="pause-help">
         <span><kbd>W A S D</kbd> 移动 · <kbd>左键</kbd> 攻击 · <kbd>空格</kbd> 翻滚</span>
-        <span><kbd>E</kbd> 互动 · <kbd>Q</kbd>/<kbd>F</kbd> 进食 · <kbd>M</kbd> 静音</span>
-        <span>在 🔥 篝火旁可以 保存 / 强化 / 购物（不能回血，回血靠进食）</span>
+        <span><kbd>E</kbd> 互动 · <kbd>Q</kbd>/<kbd>F</kbd>/<kbd>R</kbd> 进食 · <kbd>M</kbd> 静音</span>
+        <span>在 🔥 篝火旁可以 保存 / 强化 / 烹饪 / 购物（不能回血，回血靠进食）</span>
       </div>
       <button id="btn-resume" class="btn btn-primary">继续游戏</button>
       <button id="btn-quit" class="btn">回到标题（自动保存进度除外）</button>
@@ -126,6 +132,7 @@
       <button id="cf-atk" class="btn cf-upgrade"></button>
       <button id="cf-hp" class="btn cf-upgrade"></button>
       <button id="cf-stam" class="btn cf-upgrade"></button>
+      <button id="cf-cook" class="btn">🍳 烹饪 <small>（把生鲜烤成熟食，回血更高更安全）</small></button>
       <button id="cf-shop" class="btn">🛒 神秘商人的货摊</button>
       <button id="cf-close" class="btn btn-ghost">离开（Esc）</button>
     </div>
@@ -142,6 +149,19 @@
       <div id="shop-tabs"></div>
       <div id="shop-items"></div>
       <button id="shop-close" class="btn btn-ghost">离开（Esc）</button>
+    </div>
+  </div>
+
+  <!-- 篝火烹饪 -->
+  <div id="cook-menu" class="overlay hidden">
+    <div class="panel shop-panel">
+      <div class="shop-head">
+        <h2>🍳 篝火烹饪</h2>
+        <div id="cook-res"></div>
+      </div>
+      <p class="dim shop-greeting">"生食回血少、生肉还可能让你闹肚子——把它们烤熟，安全又顶饱。出征前别忘了备粮。"</p>
+      <div id="cook-items"></div>
+      <button id="cook-close" class="btn btn-ghost">离开（Esc）</button>
     </div>
   </div>
 

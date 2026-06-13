@@ -4,8 +4,8 @@
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Container, Graphics } from 'pixi.js';
 import {
-  CURRENCY, GROUPS, PLAYER, SCALE, WEAPON_BY_ID, WEAPON_UPG, SKIN_BY_ID, Tile,
-  type CurrencyKind, type Price, type ResKind, type WeaponDef,
+  CURRENCY, FOOD_BY_ID, GROUPS, PLAYER, SCALE, WEAPON_BY_ID, WEAPON_UPG, SKIN_BY_ID, Tile,
+  type CurrencyKind, type FoodDef, type FoodKind, type Price, type ResKind, type WeaponDef,
 } from '../defs';
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
@@ -39,6 +39,7 @@ export class Player {
   stam = PLAYER.stamina;
   maxStam = PLAYER.stamina;
   res: Record<ResKind, number> = { wood: 0, stone: 0, berry: 0, meat: 0, hide: 0 };
+  food: Record<FoodKind, number> = { cookedMeat: 0, berryJerky: 0, skewer: 0, stew: 0 };
   upgrades = { atk: 0, hp: 0, stam: 0 };
   weaponIdx = 0;
   weapons: string[] = ['sword', 'spear', 'bow']; // 已拥有武器 id
@@ -70,7 +71,12 @@ export class Player {
   private moving = false;
   private bobT = 0;
   private eatCd = 0;
-  statuses = new Statuses(); // 中毒 / 流血 / 魅惑 / 溺水
+  private atkBuffT = 0; // 烤肉串：临时攻击加成剩余秒数
+  private atkBuffMul = 0; // 攻击加成倍率
+  private regenT = 0; // 兽肉炖锅：持续回血剩余秒数
+  private regenRate = 0; // 每秒回血量
+  private regenFloatT = 0; // 持续回血飘字节流
+  statuses = new Statuses(); // 中毒 / 流血 / 魅惑 / 溺水 / 食物中毒
   private statusKey = '';
   private poisonFloatT = 0;
   private skinFxT = 0;
@@ -132,7 +138,8 @@ export class Player {
   }
 
   get dmgMul(): number {
-    return 1 + this.upgrades.atk * 0.15;
+    const buff = this.atkBuffT > 0 ? this.atkBuffMul : 0;
+    return (1 + this.upgrades.atk * 0.15) * (1 + buff);
   }
 
   /** 武器最终伤害：基础 × 武器等级 × 篝火攻击强化 */
@@ -383,7 +390,19 @@ export class Player {
     this.iframes -= dt;
     this.stamDelay -= dt;
     this.eatCd -= dt;
+    this.atkBuffT -= dt;
+    this.regenT -= dt;
     this.animT += dt;
+
+    // 兽肉炖锅：持续回血（不打飘字会看不见，节流提示）
+    if (this.regenT > 0 && this.hp < this.maxHp) {
+      this.hp = Math.min(this.maxHp, this.hp + this.regenRate * dt);
+      this.regenFloatT -= dt;
+      if (this.regenFloatT <= 0) {
+        this.regenFloatT = 0.6;
+        game.floats.show(this.x, this.y - 0.5, `+${this.regenRate}`, 0x8fe88a, 12);
+      }
+    }
 
     // 同步上一帧物理位置
     const t = this.body.translation();
@@ -622,32 +641,31 @@ export class Player {
       this.attack(game);
     }
 
-    // 进食（同时解除中毒）
-    if (
-      input.wasPressed('KeyQ') &&
-      this.eatCd <= 0 &&
-      this.res.berry > 0 &&
-      (this.hp < this.maxHp || this.statuses.has('poison'))
-    ) {
-      this.res.berry--;
-      this.heal(6, game);
-      this.curePoison(game);
-      this.eatCd = 1.0; // 进食有冷却，战斗中不能无限回血
-      hud.bumpRes('berry', this.res.berry);
-      sfx.eat();
+    // 进食：Q 浆果类（优先熟食莓果干）/ F 肉类（优先熟食烤肉）/ R 料理（buff，可满血食用）
+    // 生食回血弱且生肉有概率食物中毒，熟食回血高、零风险并能解食物中毒
+    const wantHeal = this.hp < this.maxHp || this.statuses.has('poison') || this.statuses.has('foodpoison');
+    if (input.wasPressed('KeyQ') && this.eatCd <= 0) {
+      if (this.food.berryJerky > 0 && (wantHeal || this.stam < this.maxStam)) {
+        this.consumeFood(FOOD_BY_ID.berryJerky, game);
+      } else if (this.res.berry > 0 && wantHeal) {
+        this.res.berry--;
+        this.heal(4, game);
+        this.curePoison(game);
+        this.eatCd = 1.0; // 进食有冷却，战斗中不能无限回血
+        hud.bumpRes('berry', this.res.berry);
+        sfx.eat();
+      }
     }
-    if (
-      input.wasPressed('KeyF') &&
-      this.eatCd <= 0 &&
-      this.res.meat > 0 &&
-      (this.hp < this.maxHp || this.statuses.has('poison'))
-    ) {
-      this.res.meat--;
-      this.heal(14, game);
-      this.curePoison(game);
-      this.eatCd = 1.0; // 进食有冷却，战斗中不能无限回血
-      hud.bumpRes('meat', this.res.meat);
-      sfx.eat();
+    if (input.wasPressed('KeyF') && this.eatCd <= 0) {
+      if (this.food.cookedMeat > 0 && wantHeal) {
+        this.consumeFood(FOOD_BY_ID.cookedMeat, game);
+      } else if (this.res.meat > 0 && wantHeal) {
+        this.eatRawMeat(game);
+      }
+    }
+    if (input.wasPressed('KeyR') && this.eatCd <= 0) {
+      if (this.food.skewer > 0) this.consumeFood(FOOD_BY_ID.skewer, game);
+      else if (this.food.stew > 0) this.consumeFood(FOOD_BY_ID.stew, game);
     }
 
     // 中毒持续掉血（无视无敌帧，可被进食解除）
@@ -659,6 +677,17 @@ export class Player {
         game.floats.show(this.x, this.y - 0.6, '-3', 0x8fd84a, 13);
         game.particles.burst(this.x, this.y - 0.3, { color: 0x8fd84a, count: 3, speed: 1.2, life: 0.5, size: 2 });
       }
+      if (this.hp <= 0) {
+        this.hp = 0;
+        this.dead = true;
+        game.onPlayerDeath();
+        return;
+      }
+    }
+
+    // 食物中毒持续掉血（生食所致，吃熟食或等时间解除）
+    if (this.statuses.has('foodpoison')) {
+      this.hp -= 2 * dt;
       if (this.hp <= 0) {
         this.hp = 0;
         this.dead = true;
@@ -931,6 +960,56 @@ export class Player {
     this.figure.tint = 0xffffff;
   }
 
+  /** 食物中毒（生肉所致）：持续轻微掉血，只能靠熟食或时间解除 */
+  applyFoodPoison(duration: number, game: Game): void {
+    if (this.dead) return;
+    if (!this.statuses.has('foodpoison')) {
+      game.floats.show(this.x, this.y - 0.8, '🤢 食物中毒!', 0xc7a14a, 14);
+    }
+    this.statuses.add('foodpoison', duration);
+  }
+
+  cureFoodPoison(game: Game): void {
+    if (this.statuses.clear('foodpoison')) {
+      game.floats.show(this.x, this.y - 0.8, '肠胃舒服多了', 0xcfe8cf, 12);
+    }
+  }
+
+  /** 熟食结算：回血 / 回耐力 / 攻击或回血 buff / 解蛇毒与食物中毒 */
+  private consumeFood(def: FoodDef, game: Game): void {
+    this.food[def.id]--;
+    if (def.heal) this.heal(def.heal, game);
+    if (def.stam) {
+      this.stam = Math.min(this.maxStam, this.stam + def.stam);
+      hud.setStam(this.stam, this.maxStam);
+    }
+    if (def.atkBuff) {
+      this.atkBuffMul = def.atkBuff;
+      this.atkBuffT = def.atkBuffDur ?? 0;
+      game.floats.show(this.x, this.y - 0.9, `⚔️ 攻击 +${Math.round(def.atkBuff * 100)}%`, 0xffb347, 14);
+    }
+    if (def.regen) {
+      this.regenRate = def.regen;
+      this.regenT = def.regenDur ?? 0;
+    }
+    this.curePoison(game); // 进食解蛇毒（沿用既有机制）
+    this.cureFoodPoison(game); // 熟食安抚肠胃
+    this.eatCd = 1.0;
+    hud.bumpFood(def.id, this.food[def.id]);
+    sfx.eat();
+  }
+
+  /** 吃生肉：劣质应急口粮，回血弱且有概率食物中毒 */
+  private eatRawMeat(game: Game): void {
+    this.res.meat--;
+    this.heal(7, game);
+    this.curePoison(game); // 进食仍可解蛇毒
+    if (Math.random() < 0.3) this.applyFoodPoison(6, game);
+    this.eatCd = 1.0;
+    hud.bumpRes('meat', this.res.meat);
+    sfx.eat();
+  }
+
   /** 魅惑（狐狸）：移动方向颠倒一段时间 */
   applyCharm(duration: number, game: Game): void {
     if (this.dead) return;
@@ -959,6 +1038,8 @@ export class Player {
     this.statuses.clearAll();
     this.figure.tint = 0xffffff;
     this.statusKey = '';
+    this.atkBuffT = 0;
+    this.regenT = 0;
     hud.setStatuses([]);
   }
 

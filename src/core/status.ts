@@ -3,13 +3,14 @@
 // 伤害结算由各效果来源负责（毒在 player、吸血在蝙蝠、溺水在 player），
 // 本模块只管理状态的存在与时长，并驱动 HUD 图标。
 
-export type StatusKind = 'poison' | 'bleed' | 'charm' | 'drown';
+export type StatusKind = 'poison' | 'bleed' | 'charm' | 'drown' | 'foodpoison';
 
 export const STATUS_INFO: Record<StatusKind, { icon: string; name: string; color: number }> = {
   poison: { icon: '☠️', name: '中毒：持续掉血，进食可解', color: 0x8fd84a },
   bleed: { icon: '🩸', name: '流血：蝙蝠正在吸血！', color: 0xff5040 },
   charm: { icon: '💫', name: '魅惑：移动方向颠倒', color: 0xff8ac8 },
   drown: { icon: '💧', name: '溺水：持续掉血，快上岸或乘船', color: 0x6ec6e0 },
+  foodpoison: { icon: '🤢', name: '食物中毒：生食导致肠胃不适，吃熟食可解', color: 0xc7a14a },
 };
 
 export class Statuses {

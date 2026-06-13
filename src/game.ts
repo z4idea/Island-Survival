@@ -866,7 +866,7 @@ export class Game {
   private updateTreeMonkeys(): void {
     for (const n of this.nodes) {
       if (!n.alive || !n.monkeyHidden || n.monkeyTriggered) continue;
-      if (Math.hypot(n.x - this.player.x, n.y - this.player.y) > 1.15) continue;
+      if (Math.hypot(n.x - this.player.x, n.y - this.player.y) > 0.78) continue;
       n.monkeyTriggered = true;
       if (n.monkeyTail) n.monkeyTail.visible = false;
 

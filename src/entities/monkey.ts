@@ -185,6 +185,7 @@ export class Monkey implements CombatTarget {
 
   destroy(game: Game): void {
     if (this.removed) return;
+    this.dead = true;
     this.removed = true;
     if (this.body) {
       game.physWorld.removeRigidBody(this.body);

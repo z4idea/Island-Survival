@@ -23,6 +23,8 @@ export class Player {
   private weaponG = new Graphics();
   private flameG = new Graphics(); // 烈焰剑：刃上常燃的火苗
   private slashG = new Graphics();
+  private tridentSlashG = new Graphics(); // 三叉戟：攻击时的双层卷浪
+  private tridentWakeG = new Graphics(); // 三叉戟：海中行走时的卷浪尾迹
   private rangeG = new Graphics(); // 权杖：身周施法领域环
   private castG = new Graphics(); // 权杖：施法落点标记
   private wingsC = new Container(); // 大天使的翅膀（挂件）
@@ -76,6 +78,9 @@ export class Player {
   private animT = 0; // 通用动画相位（领域环脉动 / 圣翼呼吸）
   private netherEmberT = 0; // 权杖宝珠的冥火余烬间隔
   private thunderEmberT = 0; // 雷霆神矛的电芒火花间隔
+  private tridentEmberT = 0; // 三叉戟的海蓝水沫间隔
+  private tridentAttackAim = 0; // 三叉戟攻击开始时锁定的卷浪朝向
+  private seaWalking = false; // 当前是否由三叉戟驱动踏浪
   private castTx = 0; // 权杖施法落点（已收束到领域内）
   private castTy = 0;
   private dashHits = new Set<Animal>(); // 圣翼冲刺：每次冲刺对每只动物只伤害一次
@@ -93,9 +98,13 @@ export class Player {
     );
 
     this.root.addChild(this.rangeG); // 施法领域环贴地，画在最底层
+    this.tridentWakeG.visible = false;
+    this.root.addChild(this.tridentWakeG);
     this.shadow.ellipse(0, 6, 12, 5).fill({ color: 0x000000, alpha: 0.28 });
     this.root.addChild(this.shadow);
     this.root.addChild(this.slashG);
+    this.tridentSlashG.visible = false;
+    this.root.addChild(this.tridentSlashG);
     this.root.addChild(this.castG);
     // 小木舟（乘船时显示）
     this.boatG.ellipse(0, 3, 18, 10).fill(0x7a5230);
@@ -271,6 +280,24 @@ export class Player {
         g.circle(7, 0.7, 2.4).fill(accent(0xc8a030));
         break;
       }
+      case 'trident': {
+        // 波塞冬的三叉戟：蓝色杖身 + 三股鱼叉尖
+        g.rect(6, -1.3, 30, 2.6).fill(accent(0x2a5a9a)); // 杖身
+        g.rect(6, -1.3, 30, 1).fill(0x6ec6ff); // 高光
+        g.rect(33, -7, 2.6, 14).fill(accent(0x2a5a9a)); // 横档
+        // 中股（最长）
+        g.rect(34, -1, 18, 2).fill(blade(0x3a9ad8));
+        g.poly([50, -2.4, 57, 0, 50, 2.4]).fill(blade(0x6ec6ff));
+        // 上股
+        g.moveTo(34, -6).lineTo(48, -6).stroke({ width: 2.4, color: blade(0x3a9ad8) });
+        g.poly([46, -8.4, 53, -6, 46, -3.6]).fill(blade(0x6ec6ff));
+        // 下股
+        g.moveTo(34, 6).lineTo(48, 6).stroke({ width: 2.4, color: blade(0x3a9ad8) });
+        g.poly([46, 3.6, 53, 6, 46, 8.4]).fill(blade(0x6ec6ff));
+        // 海蓝宝石
+        g.circle(33, 0, 2.6).fill(useSkin ? skin.blade : 0x9ae0ff);
+        break;
+      }
     }
     this.drawCastUi(wd);
   }
@@ -422,7 +449,12 @@ export class Player {
     // 洞穴内部在地图坐标之外（tile 会返回深水），强制视为岩地
     const tileHere = game.inCave !== null ? Tile.Rock : game.worldData.tile(this.x, this.y);
     const onWater = tileHere <= Tile.Water;
-    const sailingNow = onWater && this.gear.has('boat');
+    // 波塞冬的三叉戟：手持时踏浪行走（无需船、不溺水、可越深水）
+    const seaWalking = onWater && this.weapon.seaLord;
+    this.seaWalking = !!seaWalking;
+    // 乘船优先级低于海神之力（拿三叉戟时不显示船）
+    const sailingNow = onWater && this.gear.has('boat') && !seaWalking;
+    const waterFree = sailingNow || seaWalking; // 可自由通行水面（不溺水、可越深水屏障）
     if (sailingNow !== this.sailing) {
       this.sailing = sailingNow;
       this.boatG.visible = sailingNow;
@@ -461,28 +493,29 @@ export class Player {
       }
     } else {
       const rainMul = game.inCave !== null ? 1 : 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%（洞内不受雨影响）
-      const sp =
-        (this.sailing
-          ? 7.0
-          : PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1)) * rainMul;
+      let sp: number;
+      if (seaWalking) sp = PLAYER.speed * 1.7 * (this.hasTalent('sprinter') ? 1.08 : 1); // 海神之力：水上疾行
+      else if (this.sailing) sp = 7.0;
+      else sp = PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1);
+      sp *= rainMul;
       vx = mx * sp;
       vy = my * sp;
     }
 
-    // 碰撞组同步：圣翼冲刺中 → 相位（穿树/石）；乘船 → 无视深水；否则常规
+    // 碰撞组同步：按状态动态拼装 filter（位定义见 defs.ts GROUPS）
+    // 始终碰撞 ANIMAL(0x4)+WALL(0x10)；圣翼冲刺去掉 STATIC（穿树/石）；可通行水面去掉 WATER（越深水）
     const phasing = this.dashT > 0 && this.relics.has('wings');
-    const targetGroup = phasing
-      ? GROUPS.PLAYER_PHASE
-      : this.sailing
-        ? GROUPS.PLAYER_BOAT
-        : GROUPS.PLAYER;
+    let filter = 0x0004 | 0x0010;
+    if (!phasing) filter |= 0x0001; // STATIC
+    if (!waterFree) filter |= 0x0008; // WATER
+    const targetGroup = (0x0002 << 16) | filter;
     if (targetGroup !== this.colGroup) {
       this.colGroup = targetGroup;
       this.collider.setCollisionGroups(targetGroup);
     }
 
-    // 溺水：在水中（未乘船）超过 5 秒持续掉血
-    if (onWater && !this.sailing && !this.dead) {
+    // 溺水：在水中（未乘船 / 未踏浪）超过 5 秒持续掉血
+    if (onWater && !waterFree && !this.dead) {
       if (this.waterT <= 3.5 && this.waterT + dt > 3.5) {
         game.floats.show(this.x, this.y - 0.8, '体力不支…', 0x6ec6e0, 13);
       }
@@ -525,6 +558,17 @@ export class Player {
             color: 0xcfeef2, count: 2, speed: 0.8, life: 0.6, size: 2.5, alpha: 0.5,
           });
         }
+      }
+    }
+    // 踏浪行走（三叉戟）：Graphics 卷浪为主体，粒子只保留少量飞沫
+    if (seaWalking && (vx !== 0 || vy !== 0)) {
+      this.rippleT -= dt;
+      if (this.rippleT <= 0) {
+        this.rippleT = 0.18;
+        game.particles.burst(this.x - vx * 0.05, this.y + 0.2 - vy * 0.05, {
+          color: Math.random() < 0.5 ? 0x35bfe8 : 0xa7eaff,
+          count: 1, speed: 1.1, life: 0.45, size: 2.6, alpha: 0.65,
+        });
       }
     }
     // 击退衰减
@@ -665,6 +709,23 @@ export class Player {
       }
     }
 
+    // 三叉戟：戟身缭绕的海蓝水沫
+    if (this.weapon.seaLord) {
+      this.tridentEmberT -= dt;
+      if (this.tridentEmberT <= 0) {
+        this.tridentEmberT = 0.12;
+        const d = 0.8 + Math.random() * 1.1; // 沿戟身随机位置
+        game.particles.burst(
+          this.x + Math.cos(this.aim) * d + (Math.random() - 0.5) * 0.25,
+          this.y + Math.sin(this.aim) * d - 0.15 + (Math.random() - 0.5) * 0.25,
+          {
+            color: Math.random() < 0.5 ? 0x6ec6ff : 0x9ae0ff,
+            count: 1, speed: 0.7, life: 0.35 + Math.random() * 0.2, size: 2, alpha: 0.85,
+          },
+        );
+      }
+    }
+
     // 皮肤待机微光
     this.skinFxT -= dt;
     if (this.skinFxT <= 0) {
@@ -689,7 +750,9 @@ export class Player {
     const wd = this.weapon;
     this.cd = wd.cd;
     this.swingT = 0;
-    this.swingDir *= -1;
+    if (wd.seaLord) this.tridentAttackAim = this.aim;
+    // 三叉戟：固定从左挥到右（180° 单向横扫）；其余武器左右交替
+    this.swingDir = wd.seaLord ? 1 : -this.swingDir;
     // 皮肤粒子光效
     const skin = SKIN_BY_ID[this.activeSkin];
     if (skin?.fx) {
@@ -739,6 +802,11 @@ export class Player {
   private drawSlash(wd: WeaponDef): void {
     const g = this.slashG;
     g.clear();
+    if (wd.seaLord) {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
     const r = wd.range * SCALE;
     const skin = SKIN_BY_ID[this.activeSkin] ?? SKIN_BY_ID.default;
     const color = wd.thunder && skin.id === 'default' ? 0xfff3a0 : wd.flame && skin.id === 'default' ? 0xffa050 : skin.slash;
@@ -750,6 +818,75 @@ export class Player {
     }
     g.rotation = this.aim;
     g.alpha = 1;
+  }
+
+  /** 三叉戟攻击：深蓝外浪、亮蓝内浪与浅蓝泡沫浪尖。 */
+  private drawTridentSlash(): void {
+    const g = this.tridentSlashG;
+    const wd = this.weapon;
+    g.clear();
+    if (!wd.seaLord || this.swingT < 0) {
+      g.visible = false;
+      return;
+    }
+
+    const t = Math.min(1, this.swingT);
+    const ease = 1 - (1 - t) * (1 - t);
+    const fade = Math.min(1, t * 7) * Math.max(0, (1 - t) * 2.5);
+    const start = -wd.arc / 2;
+    const end = start + wd.arc * ease;
+    const outerR = wd.range * SCALE * (0.72 + ease * 0.22);
+    const innerR = outerR - 11;
+
+    g.visible = true;
+    g.rotation = this.tridentAttackAim;
+    g.arc(0, 0, outerR, start, end).stroke({ width: 15, color: 0x167fb8, alpha: 0.58 * fade });
+    g.arc(0, 0, innerR, start, end).stroke({ width: 7, color: 0x35bfe8, alpha: 0.86 * fade });
+
+    const foamStep = 0.28;
+    for (let a = start + 0.08; a < end - 0.04; a += foamStep) {
+      const foamEnd = Math.min(end, a + 0.13);
+      g.arc(0, 0, outerR + 7, a, foamEnd).stroke({
+        width: 3,
+        color: 0xa7eaff,
+        alpha: 0.82 * fade,
+      });
+    }
+  }
+
+  /** 三叉戟踏浪：沿移动方向在玩家两侧卷起海浪。 */
+  private drawTridentWake(): void {
+    const g = this.tridentWakeG;
+    const lv = this.body.linvel();
+    const speed = Math.hypot(lv.x, lv.y);
+    g.clear();
+    if (!this.weapon.seaLord || !this.seaWalking || speed < 0.35) {
+      g.visible = false;
+      return;
+    }
+
+    const strength = Math.min(1, speed / (PLAYER.speed * 1.7));
+    const curl = Math.sin(this.animT * 9) * 3;
+    const length = 30 + strength * 17;
+    const lift = 13 + strength * 10;
+    g.visible = true;
+    g.rotation = Math.atan2(lv.y, lv.x);
+    g.alpha = 0.72 + strength * 0.22;
+
+    for (const side of [-1, 1]) {
+      const sy = side * 5;
+      const crestY = side * (lift + curl);
+      const tailY = side * (12 + curl * 0.45);
+      g.moveTo(-3, sy)
+        .bezierCurveTo(-14, side * 7, -21, crestY, -length, tailY)
+        .stroke({ width: 11, color: 0x167fb8, alpha: 0.58 });
+      g.moveTo(-5, side * 7)
+        .bezierCurveTo(-17, side * 10, -24, side * (lift - 4 + curl), -length + 5, side * (10 + curl * 0.35))
+        .stroke({ width: 5.5, color: 0x35bfe8, alpha: 0.9 });
+      g.moveTo(-20, side * (lift - 1 + curl))
+        .bezierCurveTo(-27, side * (lift + 3 + curl), -34, side * (16 + curl), -length + 1, tailY)
+        .stroke({ width: 2.4, color: 0xa7eaff, alpha: 0.88 });
+    }
   }
 
   heal(n: number, game: Game): void {
@@ -872,6 +1009,8 @@ export class Player {
       this.swingT += dt / 0.16;
       if (this.swingT >= 1) this.swingT = -1;
     }
+    this.drawTridentSlash();
+    this.drawTridentWake();
     let rot = this.aim;
     let off = 0;
     if (this.swingT >= 0 && !wd.projectile) {

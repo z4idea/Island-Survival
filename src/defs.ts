@@ -128,6 +128,7 @@ export interface WeaponDef {
   aoeR?: number; // 施法爆发半径（世界单位）
   thrust?: boolean; // 突刺型挥舞动画（长矛 / 雷霆神矛）
   thunder?: boolean; // 宙斯的雷霆神矛：命中动物召唤天降闪电（雨天升级为大型闪电）
+  seaLord?: boolean; // 波塞冬的三叉戟：水域大幅加速 + 踏浪行走（无需船、不溺水）
   artifact?: boolean; // 神器：不在商店出售，只能通过神器祝福获得
   price?: Price; // 有价格 = 需在商店购买；无价格 = 初始拥有
 }
@@ -155,6 +156,10 @@ export const WEAPONS: WeaponDef[] = [
   {
     id: 'thunderspear', name: '宙斯的雷霆神矛', icon: '⚡', desc: '众神之王的雷矛：命中的动物会被天降闪电劈中；雨天电闪雷鸣，化作威力更大的巨型雷霆',
     dmg: 22, range: 2.8, arc: deg(46), cd: 0.85, knock: 9, lunge: 3.2, thrust: true, thunder: true, artifact: true,
+  },
+  {
+    id: 'trident', name: '波塞冬的三叉戟', icon: '🔱', desc: '海神的三叉戟：180° 横扫全场；身处海洋时水上疾行、踏浪而走，无需小舟也能纵横深海',
+    dmg: 18, range: 2.2, arc: deg(180), cd: 0.55, knock: 8, lunge: 1.4, seaLord: true, artifact: true,
   },
 ];
 
@@ -226,6 +231,12 @@ export const ARTIFACTS: ArtifactDef[] = [
     desc: '众神之王的雷矛 —— 形如金色闪电、电芒缭绕。命中的动物会被一道天降闪电劈中；雨天电闪雷鸣，化作威力更大的巨型雷霆',
     lore: '「他掷出的不是长矛，而是天空的怒火。」 —— 赫西俄德《神谱》',
     color: 0xffe24a, css: '#ffe24a',
+  },
+  {
+    id: 'trident', slot: 'weapon', name: '波塞冬的三叉戟', icon: '🔱',
+    desc: '海神的三叉戟 —— 蓝色水波缭绕。挥动时横扫身前 180°；身处海洋水域时获得海神之力：水上大幅加速、踏浪而行，无需小舟即可纵横深海，所过之处泛起波纹',
+    lore: '「他以三叉戟搅动海洋，波涛皆听其号令。」 —— 荷马《奥德赛》',
+    color: 0x3a9ad8, css: '#3a9ad8',
   },
   {
     id: 'wings', slot: 'relic', name: '大天使的翅膀', icon: '🕊️',

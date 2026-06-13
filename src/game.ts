@@ -139,6 +139,7 @@ export class Game {
   private blessing: BlessingSite | null = null;
   private blessingCd = 45 + Math.random() * 45; // 距下一道神光降临的秒数
   private pendingArtifact: ArtifactDef | null = null;
+  private blessingGuardians: Animal[] = []; // 神器守卫：环绕光柱的狂暴野兽
   private netherFires: NetherFire[] = [];
 
   // 天气：晴 / 雨（雨天玩家移速降低）
@@ -705,11 +706,14 @@ export class Game {
   private regenerateAnimals(): void {
     for (const a of this.animals) a.destroy(this);
     this.animals = [];
+    this.blessingGuardians = [];
     for (const r of this.spawnRecords) {
       r.animal = null;
       r.deadAt = -999;
     }
     this.spawnAllAnimals();
+    // 若光柱仍在，重新布下守卫（避免死亡后白嫖神器）
+    if (this.blessing) this.spawnBlessingGuardians(this.blessing.x, this.blessing.y);
   }
 
   // ---------------- 主循环 ----------------
@@ -1010,8 +1014,32 @@ export class Game {
 
     this.objects.addChild(root);
     this.blessing = { x: pos.x, y: pos.y, root, beam, orb, pulse, t: 0 };
-    hud.toast('✨ 一道神圣的白光自天而降…（小地图上已标记）', 3200);
+    this.spawnBlessingGuardians(pos.x, pos.y);
+    hud.toast('✨ 一道圣光自天而降，却有狂暴的野兽在守护它…（小地图已标记）', 3600);
     sfx.reveal();
+  }
+
+  /** 在光柱四周生成一圈狂暴守卫（身体发红、攻击与移动更快） */
+  private spawnBlessingGuardians(cx: number, cy: number): void {
+    const w = this.worldData;
+    const pool = ['wolf', 'boar', 'tiger', 'snake', 'goat'] as const;
+    const count = 6 + Math.floor(Math.random() * 4); // 6~9 只
+    for (let n = 0; n < count; n++) {
+      const ang = (n / count) * Math.PI * 2 + Math.random() * 0.6;
+      const r = 2.6 + Math.random() * 3.6;
+      let x = cx + Math.cos(ang) * r;
+      let y = cy + Math.sin(ang) * r;
+      if (!w.isWalkable(x, y)) {
+        x = cx + Math.cos(ang) * 2;
+        y = cy + Math.sin(ang) * 2;
+        if (!w.isWalkable(x, y)) continue;
+      }
+      const kind = pool[Math.floor(Math.random() * pool.length)];
+      const a = new Animal(this.physWorld, kind as never, x, y, -1, G_ANIMAL, this.growthFactor, true);
+      this.objects.addChild(a.root);
+      this.animals.push(a);
+      this.blessingGuardians.push(a);
+    }
   }
 
   /** 按 E：开始祝福仪式（世界冻结，播放抽取动画） */
@@ -1044,6 +1072,14 @@ export class Game {
       this.blessing.root.destroy({ children: true });
       this.blessing = null;
     }
+    // 圣光驱散残余守卫
+    for (const a of this.blessingGuardians) {
+      if (!a.dead) {
+        this.particles.burst(a.x, a.y - 0.3, { color: 0xfff0c0, count: 8, speed: 2.2, life: 0.5, size: 2.5, alpha: 0.9 });
+        a.destroy(this);
+      }
+    }
+    this.blessingGuardians = [];
     this.blessingCd = 150 + Math.random() * 120; // 下一道神光
     this.menuOpen = false;
     this.menuKind = null;

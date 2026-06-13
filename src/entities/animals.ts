@@ -25,6 +25,7 @@ export class Animal {
   private hpBar = new Graphics();
   private alertG = new Graphics(); // 攻击预警（红色）
   private lovedG = new Graphics(); // 坠入爱河：环绕的粉色爱心（丘比特的弓）
+  private enrageG = new Graphics(); // 狂暴：脚下的红色血气光环（神器守卫）
 
   x: number;
   y: number;
@@ -62,6 +63,8 @@ export class Animal {
   loved = false; // 坠入爱河：不再主动攻击玩家（被打会心碎清醒）
   private loveT = 0; // 爱心环绕动画相位
   private loveFxT = 0; // 升腾爱心粒子间隔
+  enraged = false; // 狂暴（神器守卫）：身体发红、攻击与移动更快、更暴躁
+  private enrageFxT = 0; // 血气粒子间隔
 
   constructor(
     world: RAPIER.World,
@@ -71,13 +74,15 @@ export class Animal {
     spawnIdx: number,
     groups: number,
     growth = 1, // 随游戏时长的成长系数（出生时快照）
+    enraged = false, // 神器守卫：狂暴强化
   ) {
     this.def = ANIMALS[kind];
+    this.enraged = enraged;
     // Boss 按半速成长，避免拖得久就打不动
     const g = this.def.boss ? 1 + (growth - 1) * 0.5 : growth;
-    this.maxHp = Math.round(this.def.hp * g);
+    this.maxHp = Math.round(this.def.hp * g * (enraged ? 1.25 : 1));
     this.hp = this.maxHp;
-    this.dmg = this.def.dmg * g;
+    this.dmg = this.def.dmg * g * (enraged ? 1.35 : 1);
     this.speedMul = 1 + (g - 1) * 0.3; // 速度涨得最慢
     this.x = x;
     this.y = y;
@@ -99,6 +104,13 @@ export class Animal {
     shadow.ellipse(0, this.def.radius * SCALE * 0.55, this.def.radius * SCALE * 1.05, this.def.radius * SCALE * 0.45)
       .fill({ color: 0x000000, alpha: 0.26 });
     this.root.addChild(shadow);
+    if (enraged) {
+      const rr = this.def.radius * SCALE;
+      this.enrageG.ellipse(0, rr * 0.5, rr * 1.3, rr * 0.62).fill({ color: 0xff2a1a, alpha: 0.5 });
+      this.enrageG.ellipse(0, rr * 0.5, rr * 0.8, rr * 0.4).fill({ color: 0xff5030, alpha: 0.45 });
+    }
+    this.enrageG.visible = enraged;
+    this.root.addChild(this.enrageG);
     this.root.addChild(this.alertG);
     this.drawBody();
     this.bodyC.addChild(this.gfx);
@@ -338,7 +350,7 @@ export class Animal {
 
     let vx = 0;
     let vy = 0;
-    let speed = this.def.speed * this.speedMul * (this.def.boss && this.hp < this.maxHp * 0.35 ? 1.3 : 1);
+    let speed = this.def.speed * this.speedMul * (this.def.boss && this.hp < this.maxHp * 0.35 ? 1.3 : 1) * (this.enraged ? 1.55 : 1);
     if (night && this.def.kind === 'wolf') speed *= 1.15; // 夜晚狼群更迅捷
 
     switch (this.state) {
@@ -369,7 +381,8 @@ export class Animal {
         // 进入仇恨 / 逃跑
         if (this.def.flee) {
           if (dist < 6 && !p.dead) this.setState('flee');
-        } else if (aggroR > 0 && dist < aggroR && !p.dead && !this.loved) {
+        } else if (!p.dead && !this.loved && (dist < aggroR || (this.enraged && dist < 14))) {
+          // 狂暴守卫：无视原本的被动/中立，主动扑向闯入者
           this.startAggro(game);
         }
         break;
@@ -423,17 +436,17 @@ export class Animal {
         break;
       }
       case 'windup': {
-        // 攻击前摇：原地蓄力 + 红色预警
-        const wt = this.def.boss ? 0.5 : 0.38;
+        // 攻击前摇：原地蓄力 + 红色预警（狂暴时前摇更短，出手更快）
+        const wt = (this.def.boss ? 0.5 : 0.38) * (this.enraged ? 0.6 : 1);
         this.drawAlert(this.stateT / wt);
         if (this.stateT >= wt) {
           this.alertG.clear();
           if (this.chargeDx !== 0 || this.chargeDy !== 0) {
             this.setState('charge');
-            this.chargeCd = this.def.boss ? 4.2 : 3.5;
+            this.chargeCd = (this.def.boss ? 4.2 : 3.5) * (this.enraged ? 0.5 : 1);
           } else {
             // 挥击判定
-            this.atkCd = this.def.atkCd;
+            this.atkCd = this.def.atkCd * (this.enraged ? 0.55 : 1);
             const hitR = this.def.atkR + 0.55;
             if (dist < hitR && !p.dead) {
               const landed = p.takeDamage(this.dmg, (dx / (dist || 1)) * 7, (dy / (dist || 1)) * 7, game);
@@ -536,7 +549,27 @@ export class Animal {
     } else {
       this.bodyC.x = 0;
     }
-    this.gfx.tint = this.flashT > 0 ? 0xffb0b0 : this.burnT > 0 ? 0xffc8a0 : this.loved ? 0xffc8e0 : 0xffffff;
+    this.gfx.tint =
+      this.flashT > 0 ? 0xffb0b0
+        : this.burnT > 0 ? 0xffc8a0
+          : this.loved ? 0xffc8e0
+            : this.enraged ? 0xff5a4a // 狂暴：身体常态发红
+              : 0xffffff;
+
+    // 狂暴守卫：脚下血气光环脉动 + 升腾血色粒子
+    if (this.enraged && !this.loved) {
+      this.enrageG.visible = true;
+      this.enrageG.alpha = 0.4 + Math.sin(game.time * 6) * 0.22;
+      this.enrageFxT -= dt;
+      if (this.enrageFxT <= 0) {
+        this.enrageFxT = 0.4 + Math.random() * 0.5;
+        game.particles.burst(this.x, this.y - this.def.radius * 0.4, {
+          color: Math.random() < 0.5 ? 0xff4a3a : 0xff7040, count: 1, speed: 1.3, life: 0.5, size: 2.2, alpha: 0.85,
+        });
+      }
+    } else {
+      this.enrageG.visible = false;
+    }
 
     // 坠入爱河：粉色爱心环绕 + 偶尔升腾的小爱心
     this.lovedG.clear();

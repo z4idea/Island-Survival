@@ -50,6 +50,7 @@ export class Player {
   talents = new Set<string>();
   gear = new Set<string>(); // 道具（小木舟等）
   relics = new Set<string>(); // 神器挂件（大天使的翅膀等）
+  trophies = new Set<string>(); // 小 Boss 战利品（永久被动，见 defs.TROPHIES）
   sailing = false; // 当前是否乘船
   waterT = 0; // 在水中（未乘船）的持续时间
   private drownTick = 0;
@@ -139,7 +140,8 @@ export class Player {
 
   get dmgMul(): number {
     const buff = this.atkBuffT > 0 ? this.atkBuffMul : 0;
-    return (1 + this.upgrades.atk * 0.15) * (1 + buff);
+    const trophy = this.hasTrophy('tigerfang') ? 1.12 : 1; // 虎王之牙：攻击 +12%
+    return (1 + this.upgrades.atk * 0.15) * (1 + buff) * trophy;
   }
 
   /** 武器最终伤害：基础 × 武器等级 × 篝火攻击强化 */
@@ -150,6 +152,10 @@ export class Player {
 
   hasTalent(id: string): boolean {
     return this.talents.has(id);
+  }
+
+  hasTrophy(id: string): boolean {
+    return this.trophies.has(id);
   }
 
   hasRelic(id: string): boolean {
@@ -531,10 +537,11 @@ export class Player {
       }
     } else {
       const rainMul = game.inCave !== null ? 1 : 1 - 0.2 * game.rainIntensity; // 雨天移速 -20%（洞内不受雨影响）
+      const mane = this.hasTrophy('wolfmane') ? 1.1 : 1; // 头狼之鬃：移速 +10%
       let sp: number;
-      if (seaWalking) sp = PLAYER.speed * 1.7 * (this.hasTalent('sprinter') ? 1.08 : 1); // 海神之力：水上疾行
+      if (seaWalking) sp = PLAYER.speed * 1.7 * (this.hasTalent('sprinter') ? 1.08 : 1) * mane; // 海神之力：水上疾行
       else if (this.sailing) sp = 7.0;
-      else sp = PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1);
+      else sp = PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1) * mane;
       sp *= rainMul;
       vx = mx * sp;
       vy = my * sp;
@@ -945,7 +952,7 @@ export class Player {
 
   /** 中毒：持续掉血，进食可解；叠加时取剩余时间更长者 */
   applyPoison(duration: number, game: Game): void {
-    if (this.dead) return;
+    if (this.dead || this.hasTrophy('snakescale')) return; // 巨蟒之鳞：免疫中毒
     if (!this.statuses.has('poison')) {
       game.floats.show(this.x, this.y - 0.8, '中毒!', 0x8fd84a, 15);
     }
@@ -962,7 +969,7 @@ export class Player {
 
   /** 食物中毒（生肉所致）：持续轻微掉血，只能靠熟食或时间解除 */
   applyFoodPoison(duration: number, game: Game): void {
-    if (this.dead) return;
+    if (this.dead || this.hasTrophy('snakescale')) return; // 巨蟒之鳞：免疫食物中毒
     if (!this.statuses.has('foodpoison')) {
       game.floats.show(this.x, this.y - 0.8, '🤢 食物中毒!', 0xc7a14a, 14);
     }
@@ -1047,6 +1054,7 @@ export class Player {
   takeDamage(dmg: number, kx: number, ky: number, game: Game): boolean {
     if (this.dead || this.iframes > 0) return false;
     if (this.hasTalent('tough')) dmg *= 0.9;
+    if (this.hasTrophy('crabshell')) dmg *= 0.88; // 蟹王之壳：受伤 -12%
     this.hp -= dmg;
     this.iframes = 0.7;
     this.kvx += kx;

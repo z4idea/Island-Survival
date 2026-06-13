@@ -366,7 +366,7 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     atkCd: 0, radius: 0.4, flee: true, drops: { meat: 2, hide: 1 }, color: 0xb98e5e,
   },
   bear: {
-    kind: 'bear', name: '远古巨熊', hp: 750, dmg: 34, speed: 3.1, aggroR: 12, atkR: 2.3,
+    kind: 'bear', name: '远古巨熊', hp: 1500, dmg: 34, speed: 3.1, aggroR: 12, atkR: 2.3,
     atkCd: 1.7, radius: 0.95, charge: true, boss: true, drops: { meat: 8, hide: 6 }, color: 0x4f3a28,
   },
   tiger: {
@@ -415,6 +415,47 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     charm: true, drops: { meat: 2, hide: 2 }, color: 0xd9743a,
   },
 };
+
+// ---------- 战利品（小 Boss 专属，永久被动；获得后效果在各引用点派生，不烘进存档数值） ----------
+export type TrophyKind = 'tigerfang' | 'wolfmane' | 'crabshell' | 'snakescale' | 'boarheart';
+
+export interface TrophyDef {
+  id: TrophyKind;
+  name: string;
+  icon: string;
+  desc: string;
+}
+
+export const TROPHIES: TrophyDef[] = [
+  { id: 'tigerfang', name: '虎王之牙', icon: '🦷', desc: '攻击力 +12%' },
+  { id: 'wolfmane', name: '头狼之鬃', icon: '🌬️', desc: '移动速度 +10%' },
+  { id: 'crabshell', name: '蟹王之壳', icon: '🛡️', desc: '受到的伤害 -12%' },
+  { id: 'snakescale', name: '巨蟒之鳞', icon: '🐍', desc: '免疫中毒与食物中毒' },
+  { id: 'boarheart', name: '野猪王之心', icon: '❤️', desc: '近战击杀额外恢复 6 点生命' },
+];
+
+export const TROPHY_BY_ID = Object.fromEntries(TROPHIES.map((t) => [t.id, t])) as Record<TrophyKind, TrophyDef>;
+
+// ---------- 小 Boss（各岛精英守护者；复用 Animal + 倍率强化，击杀掉专属战利品，不触发胜利） ----------
+export interface MiniBossDef {
+  id: string; // 与所掉战利品 id 一致
+  base: AnimalKind; // 基底动物（精英化）
+  name: string;
+  icon: string;
+  hpMul: number; // 血量倍率
+  dmgMul: number; // 伤害倍率
+  trophy: TrophyKind; // 击杀掉落的战利品
+}
+
+export const MINIBOSSES: MiniBossDef[] = [
+  { id: 'tigerfang', base: 'tiger', name: '百兽之王·虎王', icon: '🐯', hpMul: 9, dmgMul: 1.6, trophy: 'tigerfang' },
+  { id: 'wolfmane', base: 'wolf', name: '银鬃头狼', icon: '🐺', hpMul: 14, dmgMul: 1.7, trophy: 'wolfmane' },
+  { id: 'crabshell', base: 'crab', name: '甲壳霸主·蟹王', icon: '🦀', hpMul: 24, dmgMul: 2.2, trophy: 'crabshell' },
+  { id: 'snakescale', base: 'snake', name: '千年巨蟒', icon: '🐍', hpMul: 26, dmgMul: 2.0, trophy: 'snakescale' },
+  { id: 'boarheart', base: 'boar', name: '獠牙猪王', icon: '🐗', hpMul: 10, dmgMul: 1.7, trophy: 'boarheart' },
+];
+
+export const MINIBOSS_BY_ID = Object.fromEntries(MINIBOSSES.map((m) => [m.id, m])) as Record<string, MiniBossDef>;
 
 // ---------- 升级 ----------
 export interface UpgradeDef {

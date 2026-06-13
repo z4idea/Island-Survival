@@ -5,7 +5,7 @@ import RAPIER from '@dimforge/rapier2d-compat';
 import { Application, Container, Graphics } from 'pixi.js';
 import {
   ARTIFACTS, DAY_LENGTH, GROUPS, MAP, SCALE, Tile, UPGRADES,
-  FOOD_BY_ID, GEAR_BY_ID, SKIN_BY_ID, TALENT_BY_ID, WEAPON_BY_ID, WEAPON_UPG,
+  FOOD_BY_ID, GEAR_BY_ID, MINIBOSS_BY_ID, SKIN_BY_ID, TALENT_BY_ID, TROPHY_BY_ID, WEAPON_BY_ID, WEAPON_UPG,
   type ArtifactDef, type ResKind, type WeaponDef,
 } from './defs';
 import { Input } from './core/input';
@@ -62,6 +62,7 @@ interface SpawnRecord {
   y: number;
   animal: Animal | null;
   deadAt: number;
+  miniBoss?: string; // 小 Boss id（一次性、不重生、击杀掉战利品）
 }
 
 const CAVE_SIZE = 30; // 洞穴内部边长（格）
@@ -186,6 +187,7 @@ export class Game {
   private state: 'playing' | 'dead' = 'playing';
   campfireId = 0;
   bossDefeated = false;
+  miniBossesDefeated = new Set<string>(); // 已击杀的小 Boss id（不重生、战利品已发）
   isNight = false;
   private bossWarned = false;
   seed: number;
@@ -258,6 +260,8 @@ export class Game {
       this.player.talents = new Set(p.talents);
       this.player.gear = new Set(p.gear);
       this.player.relics = new Set(p.relics ?? []);
+      this.player.trophies = new Set(p.trophies ?? []);
+      this.miniBossesDefeated = new Set(save.miniBossesDefeated ?? []);
       this.player.weaponIdx = Math.min(p.weapon, this.player.weapons.length - 1);
       this.player.drawWeapon();
       this.removedNodes = new Set(save.removedNodes);
@@ -269,7 +273,7 @@ export class Game {
     this.buildCaves();
 
     // 动物
-    this.spawnRecords = this.worldData.spawns.map((s) => ({ kind: s.kind, x: s.x, y: s.y, animal: null, deadAt: -999 }));
+    this.spawnRecords = this.worldData.spawns.map((s) => ({ kind: s.kind, x: s.x, y: s.y, animal: null, deadAt: -999, miniBoss: s.miniBoss }));
     for (const b of this.caveAnimalSpawns) {
       this.spawnRecords.push({ kind: b.kind, x: b.x, y: b.y, animal: null, deadAt: -999 });
     }
@@ -280,10 +284,11 @@ export class Game {
     hud.buildHotbar(this.player.weapons, this.player.weaponIdx);
     hud.setRes(this.player.res);
     hud.setFood(this.player.food);
+    hud.setTrophies([...this.player.trophies]);
     hud.updateCoins(this.player.coins);
     hud.setHp(this.player.hp, this.player.maxHp);
     this.revealAround(this.player.x, this.player.y);
-    hud.drawMinimap(this.worldData, this.player.x, this.player.y, !this.bossDefeated);
+    hud.drawMinimap(this.worldData, this.player.x, this.player.y, !this.bossDefeated, null, this.liveMiniBosses());
 
     this.app.ticker.add((tk) => this.tick(Math.min(tk.deltaMS / 1000, 0.05)));
 
@@ -727,6 +732,7 @@ export class Game {
     for (let i = 0; i < this.spawnRecords.length; i++) {
       const r = this.spawnRecords[i];
       if (r.kind === 'bear' && this.bossDefeated) continue;
+      if (r.miniBoss && this.miniBossesDefeated.has(r.miniBoss)) continue; // 已击杀的小 Boss 不再出现
       this.spawnAnimal(i);
     }
   }
@@ -738,7 +744,7 @@ export class Game {
 
   private spawnAnimal(idx: number): void {
     const r = this.spawnRecords[idx];
-    const a = new Animal(this.physWorld, r.kind as never, r.x, r.y, idx, G_ANIMAL, this.growthFactor);
+    const a = new Animal(this.physWorld, r.kind as never, r.x, r.y, idx, G_ANIMAL, this.growthFactor, false, r.miniBoss);
     this.objects.addChild(a.root);
     this.animals.push(a);
     r.animal = a;
@@ -1462,7 +1468,7 @@ export class Game {
     this.respawnT = 6;
     for (let i = 0; i < this.spawnRecords.length; i++) {
       const r = this.spawnRecords[i];
-      if (r.kind === 'bear') continue;
+      if (r.kind === 'bear' || r.miniBoss) continue; // Boss/小 Boss 不重生
       if (r.animal && !r.animal.dead) continue;
       if (r.deadAt < 0 || this.time - r.deadAt < 25) continue;
       if (Math.hypot(r.x - this.player.x, r.y - this.player.y) < 16) continue;
@@ -1482,14 +1488,25 @@ export class Game {
       const mx = this.inCave !== null ? this.caves[this.inCave].ex : this.player.x;
       const my = this.inCave !== null ? this.caves[this.inCave].ey : this.player.y;
       if (this.inCave === null) this.revealAround(this.player.x, this.player.y);
-      hud.drawMinimap(this.worldData, mx, my, !this.bossDefeated, this.blessing);
+      hud.drawMinimap(this.worldData, mx, my, !this.bossDefeated, this.blessing, this.liveMiniBosses());
     }
 
-    // Boss 血条
-    const bear = this.animals.find((a) => a.def.boss && !a.dead);
-    if (bear && (bear.aggro || Math.hypot(bear.x - this.player.x, bear.y - this.player.y) < 15)) {
-      hud.setBossBar(bear.hp / bear.maxHp);
-      if (bear.aggro && !this.bossWarned) {
+    // Boss 血条：在战的巨熊或小 Boss 中取最近的一只
+    let active: Animal | null = null;
+    let bestD = Infinity;
+    for (const a of this.animals) {
+      if (a.dead || (!a.def.boss && !a.miniBoss)) continue;
+      const d = Math.hypot(a.x - this.player.x, a.y - this.player.y);
+      if (!a.aggro && d >= 15) continue;
+      if (d < bestD) {
+        bestD = d;
+        active = a;
+      }
+    }
+    if (active) {
+      const name = active.def.boss ? '岛屿之王 · 远古巨熊' : `${active.miniBoss!.icon} ${active.miniBoss!.name}`;
+      hud.setBossBar(active.hp / active.maxHp, name);
+      if (active.def.boss && active.aggro && !this.bossWarned) {
         this.bossWarned = true;
         hud.toast('⚠️ 岛屿之王苏醒了！');
       }
@@ -1563,6 +1580,7 @@ export class Game {
       if (target.dead) {
         this.addShake(0.22);
         if (player.hasTalent('vampire')) player.heal(4, this); // 嗜血：击杀回血
+        if (player.hasTrophy('boarheart')) player.heal(6, this); // 野猪王之心：击杀额外回血
       }
     }
     if (hitTarget) sfx.hit();
@@ -1679,7 +1697,33 @@ export class Game {
         hud.showScreen('win');
         this.paused = true;
       }, 1400);
+    } else if (a.miniBoss) {
+      this.onMiniBossKilled(a.miniBoss.id);
     }
+  }
+
+  /** 未击杀的小 Boss 位置（供小地图标记） */
+  private liveMiniBosses(): { x: number; y: number }[] {
+    return this.worldData.miniBosses.filter((m) => !this.miniBossesDefeated.has(m.id));
+  }
+
+  /** 小 Boss 击杀：发专属战利品（重复则改给钻石）、记录已击杀、立即存档 */
+  private onMiniBossKilled(id: string): void {
+    this.miniBossesDefeated.add(id);
+    hud.setBossBar(null);
+    this.addShake(0.6);
+    sfx.win();
+    const mb = MINIBOSS_BY_ID[id];
+    const tro = mb ? TROPHY_BY_ID[mb.trophy] : undefined;
+    if (tro && !this.player.trophies.has(tro.id)) {
+      this.player.trophies.add(tro.id);
+      hud.setTrophies([...this.player.trophies]);
+      hud.toast(`👑 击败 ${mb.icon}${mb.name}！获得战利品 ${tro.icon} ${tro.name} —— ${tro.desc}`);
+    } else {
+      this.drops.spawn('diamond', this.player.x, this.player.y, 5); // 重复战利品：钻石兜底
+      hud.toast(`👑 再次击败 ${mb?.icon ?? ''}${mb?.name ?? '小 Boss'}！洒落一批钻石`);
+    }
+    this.saveNow();
   }
 
   onPlayerDeath(): void {
@@ -1921,6 +1965,7 @@ export class Game {
       campfireId: this.campfireId,
       removedNodes: [...this.removedNodes],
       bossDefeated: this.bossDefeated,
+      miniBossesDefeated: [...this.miniBossesDefeated],
       player: {
         x: p.x,
         y: p.y,
@@ -1939,6 +1984,7 @@ export class Game {
         talents: [...p.talents],
         gear: [...p.gear],
         relics: [...p.relics],
+        trophies: [...p.trophies],
       },
       explored: packExplored(this.explored),
       openedChests: [...this.openedChests],

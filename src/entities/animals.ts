@@ -3,7 +3,7 @@
 
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Container, Graphics } from 'pixi.js';
-import { ANIMALS, COIN_TABLE, GROUPS, SCALE, Tile, type AnimalDef, type AnimalKind, type ResKind } from '../defs';
+import { ANIMALS, COIN_TABLE, GROUPS, MINIBOSS_BY_ID, SCALE, Tile, type AnimalDef, type AnimalKind, type MiniBossDef, type ResKind } from '../defs';
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
 import type { CombatTarget } from './combat-target';
@@ -71,6 +71,8 @@ export class Animal implements CombatTarget {
   private loveFxT = 0; // 升腾爱心粒子间隔
   enraged = false; // 狂暴（神器守卫）：身体发红、攻击与移动更快、更暴躁
   private enrageFxT = 0; // 血气粒子间隔
+  miniBoss: MiniBossDef | null = null; // 岛屿小 Boss（精英守护者）：倍率强化 + 专属掉落
+  private bodyScale = 1; // 体型缩放（小 Boss 1.45），每帧朝向翻转时复用
 
   constructor(
     world: RAPIER.World,
@@ -81,14 +83,17 @@ export class Animal implements CombatTarget {
     groups: number,
     growth = 1, // 随游戏时长的成长系数（出生时快照）
     enraged = false, // 神器守卫：狂暴强化
+    miniBossId?: string, // 岛屿小 Boss id（见 defs.MINIBOSSES）
   ) {
     this.def = ANIMALS[kind];
     this.enraged = enraged;
-    // Boss 按半速成长，避免拖得久就打不动
+    this.miniBoss = miniBossId ? MINIBOSS_BY_ID[miniBossId] ?? null : null;
+    const mb = this.miniBoss;
+    // Boss 按半速成长，避免拖得久就打不动；小 Boss 随时长全速成长，再叠基底倍率
     const g = this.def.boss ? 1 + (growth - 1) * 0.5 : growth;
-    this.maxHp = Math.round(this.def.hp * g * (enraged ? 1.25 : 1));
+    this.maxHp = Math.round(this.def.hp * g * (enraged ? 1.25 : 1) * (mb ? mb.hpMul : 1));
     this.hp = this.maxHp;
-    this.dmg = this.def.dmg * g * (enraged ? 1.35 : 1);
+    this.dmg = this.def.dmg * g * (enraged ? 1.35 : 1) * (mb ? mb.dmgMul : 1);
     this.speedMul = 1 + (g - 1) * 0.3; // 速度涨得最慢
     this.x = x;
     this.y = y;
@@ -115,10 +120,25 @@ export class Animal implements CombatTarget {
       this.enrageG.ellipse(0, rr * 0.5, rr * 1.3, rr * 0.62).fill({ color: 0xff2a1a, alpha: 0.5 });
       this.enrageG.ellipse(0, rr * 0.5, rr * 0.8, rr * 0.4).fill({ color: 0xff5030, alpha: 0.45 });
     }
-    this.enrageG.visible = enraged;
+    if (mb) {
+      // 小 Boss：脚下金色王者光环
+      const rr = this.def.radius * SCALE;
+      this.enrageG.ellipse(0, rr * 0.6, rr * 1.6, rr * 0.7).fill({ color: 0xffd24a, alpha: 0.32 });
+      this.enrageG.ellipse(0, rr * 0.6, rr * 1.0, rr * 0.45).fill({ color: 0xffe9a0, alpha: 0.3 });
+      this.enrageG.visible = true;
+    }
+    this.enrageG.visible = enraged || mb !== null;
     this.root.addChild(this.enrageG);
     this.root.addChild(this.alertG);
     this.drawBody();
+    if (mb) {
+      // 头顶金色王冠 + 放大体型
+      this.bodyScale = 1.45;
+      this.bodyC.scale.set(1.45);
+      const cy = -this.def.radius * SCALE - 8;
+      this.gfx.poly([-7, cy, -7, cy - 7, -3.5, cy - 3, 0, cy - 9, 3.5, cy - 3, 7, cy - 7, 7, cy])
+        .fill(0xffd24a).stroke({ width: 1, color: 0xb8860b });
+    }
     this.bodyC.addChild(this.gfx);
     this.root.addChild(this.bodyC);
     this.hpBar.visible = false;
@@ -352,11 +372,11 @@ export class Animal implements CombatTarget {
     const dy = p.y - this.y;
     const dist = Math.hypot(dx, dy);
     const night = game.isNight;
-    const aggroR = this.def.aggroR * (night && this.def.kind === 'wolf' ? 1.45 : 1);
+    const aggroR = this.def.aggroR * (night && this.def.kind === 'wolf' ? 1.45 : 1) * (this.miniBoss ? 1.8 : 1);
 
     let vx = 0;
     let vy = 0;
-    let speed = this.def.speed * this.speedMul * (this.def.boss && this.hp < this.maxHp * 0.35 ? 1.3 : 1) * (this.enraged ? 1.55 : 1);
+    let speed = this.def.speed * this.speedMul * ((this.def.boss || this.miniBoss) && this.hp < this.maxHp * 0.35 ? 1.3 : 1) * (this.enraged ? 1.55 : 1);
     if (night && this.def.kind === 'wolf') speed *= 1.15; // 夜晚狼群更迅捷
 
     switch (this.state) {
@@ -387,8 +407,8 @@ export class Animal implements CombatTarget {
         // 进入仇恨 / 逃跑
         if (this.def.flee) {
           if (dist < 6 && !p.dead) this.setState('flee');
-        } else if (!p.dead && !this.loved && (dist < aggroR || (this.enraged && dist < 14))) {
-          // 狂暴守卫：无视原本的被动/中立，主动扑向闯入者
+        } else if (!p.dead && !this.loved && (dist < aggroR || ((this.enraged || this.miniBoss) && dist < 14))) {
+          // 狂暴守卫 / 小 Boss：无视原本的被动/中立，主动扑向闯入者
           this.startAggro(game);
         }
         break;
@@ -547,7 +567,7 @@ export class Animal implements CombatTarget {
     }
     // 翻转而不是整体旋转（保持俯视感）：水平翻转 + 小幅倾斜
     const flip = Math.cos(this.faceAng) < 0 ? -1 : 1;
-    this.bodyC.scale.x = flip;
+    this.bodyC.scale.x = flip * this.bodyScale; // 小 Boss 放大体型（scale.y 在构造时设好）
     this.bodyC.rotation = Math.sin(this.faceAng) * 0.35 * flip;
     this.bodyC.y = -Math.abs(Math.sin(this.bobT)) * 2.2 - (this.def.flying ? 8 : 0);
     if (this.state === 'windup') {
@@ -744,6 +764,10 @@ export class Animal implements CombatTarget {
       game.drops.spawn('silver', this.x, this.y, 18);
       game.drops.spawn('gold', this.x, this.y, 6);
       game.drops.spawn('diamond', this.x, this.y, 3);
+    } else if (this.miniBoss) {
+      game.drops.spawn('silver', this.x, this.y, 10);
+      game.drops.spawn('gold', this.x, this.y, 4);
+      game.drops.spawn('diamond', this.x, this.y, 2);
     } else {
       const ct = COIN_TABLE[this.def.kind];
       if (Math.random() < 0.65 * luck) {

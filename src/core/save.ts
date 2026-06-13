@@ -9,6 +9,7 @@ export interface SaveData {
   campfireId: number; // 上次休息的篝火（复活点）
   removedNodes: number[]; // 已被采集摧毁的资源节点 id
   bossDefeated: boolean;
+  miniBossesDefeated?: string[]; // 已击杀的小 Boss id（v4 旧档可缺省）
   player: {
     x: number;
     y: number;
@@ -27,6 +28,7 @@ export interface SaveData {
     talents: string[];
     gear: string[]; // 道具（小木舟等）
     relics?: string[]; // 神器挂件（大天使的翅膀等，旧 v4 档可缺省）
+    trophies?: string[]; // 小 Boss 战利品（永久被动，旧 v4 档可缺省）
   };
   explored: string; // 战争迷雾：按位打包 + base64
   openedChests?: number[]; // 洞穴中已开启的宝箱 id（v4 旧档可缺省）

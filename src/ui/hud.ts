@@ -2,7 +2,7 @@
 // HUD：生命/耐力条、资源计数、武器栏、小地图、提示与各类界面切换
 
 import {
-  ARTIFACTS, CURRENCY, FOODS, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
+  ARTIFACTS, CURRENCY, FOODS, GEAR, MAP, RES_EMOJI, SKINS, TALENTS, Tile, TROPHY_BY_ID, UPGRADES, WEAPONS, WEAPON_BY_ID, WEAPON_UPG,
   type ArtifactDef, type CurrencyKind, type FoodKind, type Price, type ResKind,
 } from '../defs';
 import { STATUS_INFO, type StatusKind } from '../core/status';
@@ -141,14 +141,25 @@ export function setCaveOverlay(on: boolean): void {
   $('cave-overlay').classList.toggle('hidden', !on);
 }
 
-export function setBossBar(frac: number | null): void {
+export function setBossBar(frac: number | null, name?: string): void {
   const box = $('boss-bar-box');
   if (frac === null) {
     box.classList.add('hidden');
   } else {
     box.classList.remove('hidden');
+    if (name) $('boss-name').textContent = name;
     $('boss-fill').style.width = `${Math.max(0, frac * 100)}%`;
   }
+}
+
+/** 小 Boss 战利品图标行（永久被动） */
+export function setTrophies(ids: string[]): void {
+  $('trophies').innerHTML = ids
+    .map((id) => {
+      const t = TROPHY_BY_ID[id as keyof typeof TROPHY_BY_ID];
+      return t ? `<span class="res trophy" title="${t.name}：${t.desc}"><i>${t.icon}</i></span>` : '';
+    })
+    .join('');
 }
 
 // ---------- 界面切换 ----------
@@ -432,6 +443,7 @@ export function drawMinimap(
   py: number,
   bossAlive: boolean,
   blessing: { x: number; y: number } | null = null,
+  miniBosses: { x: number; y: number }[] = [],
 ): void {
   if (!mapBase || !fogCanvas) return;
   const canvas = $('minimap') as unknown as HTMLCanvasElement;
@@ -452,7 +464,16 @@ export function drawMinimap(
     ctx.arc(world.bossPos.x, world.bossPos.y, 4.2, 0, Math.PI * 2);
     ctx.fill();
   }
-  // 迷雾盖在标记之上 → 未探索的篝火/Boss 不可见
+  // 小 Boss（未击杀）：金色菱形标记
+  ctx.fillStyle = '#ffce4a';
+  for (const m of miniBosses) {
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
+    ctx.restore();
+  }
+  // 迷雾盖在标记之上 → 未探索的篝火/Boss/小 Boss 不可见
   ctx.drawImage(fogCanvas, 0, 0);
   // 神器祝福：自天而降的指引之光，无视迷雾可见
   if (blessing) {

@@ -2,7 +2,7 @@
 // 程序化群岛生成：多岛屿高度场 + 生物群系 + 连通域 + 资源 / 篝火 / 动物分布
 // Boss 随机出现在某座岛屿的山顶；篝火随机分布在各岛陆地上
 
-import { MAP, Tile, walkable, type AnimalKind } from '../defs';
+import { MAP, MINIBOSSES, Tile, walkable, type AnimalKind } from '../defs';
 import { Noise2D, mulberry32 } from '../utils/noise';
 
 export type NodeKind = 'tree' | 'palm' | 'rock' | 'bush' | 'crystal'; // crystal 仅在洞穴内（game.ts 注入）
@@ -24,6 +24,13 @@ export interface SpawnPoint {
   kind: AnimalKind;
   x: number;
   y: number;
+  miniBoss?: string; // 小 Boss id（精英化 + 专属掉落），见 defs.MINIBOSSES
+}
+
+export interface MiniBossSpot {
+  id: string;
+  x: number;
+  y: number;
 }
 
 export interface Isle {
@@ -37,6 +44,7 @@ export class WorldData {
   nodes: NodeData[] = [];
   campfires: CampfirePoint[] = [];
   spawns: SpawnPoint[] = [];
+  miniBosses: MiniBossSpot[] = [];
   isles: Isle[] = [];
   bossPos = { x: MAP / 2, y: MAP / 2 };
   startCampfireId = 0;
@@ -289,6 +297,37 @@ export function generateWorld(seed: number): WorldData {
   }
   // 岛屿之王
   w.spawns.push({ kind: 'bear', x: w.bossPos.x, y: w.bossPos.y });
+
+  // ---- 岛屿小 Boss：每座非巨熊岛放 1 只精英守护者（落在岛中心附近的有效陆地）----
+  // 在岛中心周围螺旋搜索最近的可达陆地格
+  const findLand = (cx: number, cy: number): { x: number; y: number } | null => {
+    for (let r = 0; r <= 18; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // 只看当前环
+          const tx = Math.floor(cx) + dx;
+          const ty = Math.floor(cy) + dy;
+          if (tx < 1 || ty < 1 || tx >= MAP - 1 || ty >= MAP - 1) continue;
+          const wx = tx + 0.5;
+          const wy = ty + 0.5;
+          if (!reachable(tx, ty) || nearBoss(wx, wy, 8)) continue;
+          if (Math.hypot(wx - start.x, wy - start.y) < 16) continue; // 远离出生点，别一开局就贴脸
+          return { x: wx, y: wy };
+        }
+      }
+    }
+    return null;
+  };
+  let mbIdx = 0;
+  for (const isle of isles) {
+    if (isle === bossIsle) continue; // 巨熊岛不再放小 Boss
+    const spot = findLand(isle.x, isle.y);
+    if (!spot) continue;
+    const mb = MINIBOSSES[mbIdx % MINIBOSSES.length];
+    mbIdx++;
+    w.spawns.push({ kind: mb.base, x: spot.x, y: spot.y, miniBoss: mb.id });
+    w.miniBosses.push({ id: mb.id, x: spot.x, y: spot.y });
+  }
 
   return w;
 }

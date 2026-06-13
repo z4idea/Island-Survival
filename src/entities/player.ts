@@ -79,6 +79,7 @@ export class Player {
   private castTy = 0;
   private dashHits = new Set<Animal>(); // 圣翼冲刺：每次冲刺对每只动物只伤害一次
   private wingsDrawn = false;
+  private colGroup = GROUPS.PLAYER; // 当前碰撞组（乘船 / 圣翼相位时切换）
 
   constructor(world: RAPIER.World, x: number, y: number, groups: number) {
     this.x = x;
@@ -401,7 +402,6 @@ export class Player {
     const sailingNow = onWater && this.gear.has('boat');
     if (sailingNow !== this.sailing) {
       this.sailing = sailingNow;
-      this.collider.setCollisionGroups(sailingNow ? GROUPS.PLAYER_BOAT : GROUPS.PLAYER);
       this.boatG.visible = sailingNow;
       this.shadow.visible = !sailingNow;
     }
@@ -411,7 +411,7 @@ export class Player {
     if (this.dashT > 0) {
       this.dashT -= dt;
       const wings = this.relics.has('wings');
-      const dSpeed = wings ? 15 : PLAYER.dashSpeed;
+      const dSpeed = wings ? 22 : PLAYER.dashSpeed; // 圣翼冲刺更迅疾
       vx = this.dashDx * dSpeed;
       vy = this.dashDy * dSpeed;
       if (wings) {
@@ -444,6 +444,18 @@ export class Player {
           : PLAYER.speed * (onWater ? 0.55 : 1) * (this.hasTalent('sprinter') ? 1.08 : 1)) * rainMul;
       vx = mx * sp;
       vy = my * sp;
+    }
+
+    // 碰撞组同步：圣翼冲刺中 → 相位（穿树/石）；乘船 → 无视深水；否则常规
+    const phasing = this.dashT > 0 && this.relics.has('wings');
+    const targetGroup = phasing
+      ? GROUPS.PLAYER_PHASE
+      : this.sailing
+        ? GROUPS.PLAYER_BOAT
+        : GROUPS.PLAYER;
+    if (targetGroup !== this.colGroup) {
+      this.colGroup = targetGroup;
+      this.collider.setCollisionGroups(targetGroup);
     }
 
     // 溺水：在水中（未乘船）超过 5 秒持续掉血

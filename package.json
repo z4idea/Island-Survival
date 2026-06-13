@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
+    "test:monkey": "vitest run src/entities",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "typescript": "^5.5.4",
-    "vite": "^4.5.5"
+    "vite": "^4.5.5",
+    "vitest": "^0.34.6"
   }
 }

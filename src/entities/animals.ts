@@ -6,6 +6,7 @@ import { Container, Graphics } from 'pixi.js';
 import { ANIMALS, COIN_TABLE, GROUPS, SCALE, Tile, type AnimalDef, type AnimalKind, type ResKind } from '../defs';
 import type { Game } from '../game';
 import { sfx } from '../core/audio';
+import type { CombatTarget } from './combat-target';
 
 type State = 'idle' | 'wander' | 'chase' | 'windup' | 'charge' | 'flee' | 'latch' | 'dying';
 
@@ -16,7 +17,8 @@ function drawHeart(g: Graphics, x: number, y: number, s: number, color: number, 
   g.poly([x - s * 1.05, y - s * 0.08, x + s * 1.05, y - s * 0.08, x, y + s]).fill({ color, alpha });
 }
 
-export class Animal {
+export class Animal implements CombatTarget {
+  readonly targetType = 'animal' as const;
   def: AnimalDef;
   body: RAPIER.RigidBody | null;
   root = new Container();
@@ -59,6 +61,10 @@ export class Animal {
   private faceAng = 0;
   private dieT = 0;
   private roared = false;
+
+  get radius(): number {
+    return this.def.radius;
+  }
   aggro = false;
   loved = false; // 坠入爱河：不再主动攻击玩家（被打会心碎清醒）
   private loveT = 0; // 爱心环绕动画相位

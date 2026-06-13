@@ -504,7 +504,8 @@ export class Game {
       }
 
       const ox = 20 + i * 70;
-      const oy = MAP + 16;
+      // 洞穴背景向上外扩 30 格，内部至少下移 32 格以免覆盖主地图底边。
+      const oy = MAP + 32;
       const cave: CaveDef = {
         id: i, ex: pos.x, ey: pos.y, ox, oy, cells,
         exitX: ox + 15.5, exitY: oy + 25.5,

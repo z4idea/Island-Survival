@@ -16,6 +16,8 @@ import { WorldRenderer } from './world/worldrender';
 import { Particles, FloatTexts } from './fx';
 import { Player } from './entities/player';
 import { Animal } from './entities/animals';
+import { Monkey } from './entities/monkey';
+import { hasHiddenMonkey, pickStolenItem, stolenItemLabel } from './entities/monkey-logic';
 import { Drops } from './entities/drops';
 import { Projectiles } from './entities/projectiles';
 import { mulberry32, tileJitter } from './utils/noise';
@@ -39,6 +41,9 @@ export interface WNode {
   root: Container;
   berriesG: Graphics | null;
   collider: RAPIER.Collider | null;
+  monkeyHidden: boolean;
+  monkeyTriggered: boolean;
+  monkeyTail: Graphics | null;
 }
 
 interface Campfire {
@@ -133,6 +138,7 @@ export class Game {
 
   player!: Player;
   animals: Animal[] = [];
+  monkeys: Monkey[] = [];
   nodes: WNode[] = [];
   private campfires: Campfire[] = [];
   removedNodes = new Set<number>();
@@ -376,6 +382,8 @@ export class Game {
       }
       g.scale.set(scale);
       root.addChild(g);
+      const monkeyHidden = nd.kind === 'tree' && hasHiddenMonkey(this.worldData.seed, nd.id);
+      const monkeyTail = monkeyHidden ? this.drawMonkeyTail(root, scale, nd.id) : null;
       if (berriesG) {
         berriesG.scale.set(scale);
         root.addChild(berriesG);
@@ -402,8 +410,25 @@ export class Game {
         root,
         berriesG,
         collider,
+        monkeyHidden,
+        monkeyTriggered: false,
+        monkeyTail,
       });
     }
+  }
+
+  private drawMonkeyTail(root: Container, scale: number, nodeId: number): Graphics {
+    const tail = new Graphics();
+    const side = nodeId % 2 === 0 ? 1 : -1;
+    tail.moveTo(side * 8, -18)
+      .bezierCurveTo(side * 20, -17, side * 21, -3, side * 13, 0)
+      .stroke({ color: 0x754526, width: 5, cap: 'round' });
+    tail.circle(side * 13, 0, 2.5).fill(0x8b5832);
+    tail.scale.set(scale);
+    tail.pivot.set(side * 8, -18);
+    tail.position.set(side * 8 * scale, -18 * scale);
+    root.addChild(tail);
+    return tail;
   }
 
   private buildCampfires(): void {
@@ -662,6 +687,7 @@ export class Game {
       this.nodes.push({
         id, kind: 'crystal', x: nx, y: ny, hp: 4, alive: true,
         berries: false, regrowT: 0, wobbleT: 0, root, berriesG: null, collider,
+        monkeyHidden: false, monkeyTriggered: false, monkeyTail: null,
       });
     }
 
@@ -718,7 +744,9 @@ export class Game {
 
   private regenerateAnimals(): void {
     for (const a of this.animals) a.destroy(this);
+    for (const monkey of this.monkeys) monkey.destroy(this);
     this.animals = [];
+    this.monkeys = [];
     this.blessingGuardians = [];
     for (const r of this.spawnRecords) {
       r.animal = null;
@@ -767,6 +795,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.player.update(dt, this);
+      this.updateTreeMonkeys();
     } else if (this.deathT > 0) {
       this.deathT -= dtRaw;
       if (this.deathT <= 0) hud.showScreen('death');
@@ -781,6 +810,8 @@ export class Game {
     if (this.animals.length > 0 && Math.random() < 0.02) {
       this.animals = this.animals.filter((a) => !a.dead || a.root.parent !== null);
     }
+    for (const monkey of this.monkeys) monkey.update(dt, this);
+    this.monkeys = this.monkeys.filter((monkey) => !monkey.removed);
 
     // 物理步进
     this.physWorld.timestep = Math.max(dt, 1 / 240);
@@ -819,6 +850,9 @@ export class Game {
         n.wobbleT -= dt;
         n.root.rotation = Math.sin(n.wobbleT * 28) * 0.07 * (n.wobbleT / 0.35);
       }
+      if (n.monkeyTail?.visible) {
+        n.monkeyTail.rotation = Math.sin(this.time * 3 + n.id) * 0.12;
+      }
       if (n.kind === 'bush' && !n.berries) {
         n.regrowT -= dt;
         if (n.regrowT <= 0) {
@@ -826,6 +860,46 @@ export class Game {
           if (n.berriesG) n.berriesG.visible = true;
         }
       }
+    }
+  }
+
+  private updateTreeMonkeys(): void {
+    for (const n of this.nodes) {
+      if (!n.alive || !n.monkeyHidden || n.monkeyTriggered) continue;
+      if (Math.hypot(n.x - this.player.x, n.y - this.player.y) > 1.15) continue;
+      n.monkeyTriggered = true;
+      if (n.monkeyTail) n.monkeyTail.visible = false;
+
+      const stolen = pickStolenItem(this.player.monkeyInventory());
+      if (stolen) {
+        this.player.changeMonkeyItem(stolen, -1);
+        this.floats.show(
+          this.player.x,
+          this.player.y - 0.9,
+          `猴子偷走了 ${stolenItemLabel(stolen.kind)} x${stolen.amount}!`,
+          0xff9b52,
+          15,
+        );
+      } else {
+        this.floats.show(this.player.x, this.player.y - 0.9, '猴子什么也没偷到!', 0xffcf80, 14);
+      }
+
+      let dx = n.x - this.player.x;
+      let dy = n.y - this.player.y;
+      const len = Math.hypot(dx, dy) || 1;
+      dx /= len;
+      dy /= len;
+      const monkey = new Monkey(
+        this.physWorld,
+        n.x + dx * 0.85,
+        n.y + dy * 0.85,
+        this.player.x,
+        this.player.y,
+        stolen,
+      );
+      this.objects.addChild(monkey.root);
+      this.monkeys.push(monkey);
+      this.particles.burst(n.x, n.y - 0.6, { color: 0x7a4a28, count: 8, speed: 2.5, life: 0.45, size: 2.5 });
     }
   }
 

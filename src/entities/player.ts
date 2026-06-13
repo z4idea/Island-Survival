@@ -12,6 +12,7 @@ import type { Animal } from './animals';
 import { sfx } from '../core/audio';
 import { Statuses } from '../core/status';
 import * as hud from '../ui/hud';
+import type { MonkeyInventory, StolenItem } from './monkey-logic';
 
 export class Player {
   body: RAPIER.RigidBody;
@@ -163,6 +164,23 @@ export class Player {
     hud.bumpCoin(kind, this.coins[kind]);
     game.floats.show(this.x, this.y - 0.5, `+${n}${CURRENCY[kind].char}`, CURRENCY[kind].color, 13);
     sfx.pickup();
+  }
+
+  monkeyInventory(): MonkeyInventory {
+    return { ...this.res, ...this.coins };
+  }
+
+  changeMonkeyItem(item: StolenItem, direction: -1 | 1): void {
+    const next = Math.max(0, this.monkeyInventory()[item.kind] + item.amount * direction);
+    if (item.kind in this.res) {
+      const kind = item.kind as ResKind;
+      this.res[kind] = next;
+      hud.bumpRes(kind, next);
+    } else {
+      const kind = item.kind as CurrencyKind;
+      this.coins[kind] = next;
+      hud.bumpCoin(kind, next);
+    }
   }
 
   private drawFigure(): void {
